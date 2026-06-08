@@ -157,7 +157,7 @@ class DuckDBExecutor:
                                     "columns": [
                                         {"name": column["name"], "type": column["type"]}
                                         for column in sorted(
-                                            schema[table_name],
+                                            databases[database_name][schema_name][table_name],
                                             key=lambda column: column["ordinal_position"],
                                         )
                                     ],

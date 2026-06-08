@@ -3,6 +3,8 @@ from uuid import UUID, uuid4
 
 import asyncpg
 
+from ducklauncher.db.notify import notify_query_status
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -177,33 +179,51 @@ async def complete_query(
             result_row_count,
         )
         if result.endswith("1"):
+            await notify_query_status(
+                conn,
+                query_id,
+                status,
+                error=error,
+                result_row_count=result_row_count,
+            )
             return True
         existing = await conn.fetchval(
             "SELECT status FROM queries WHERE query_id = $1",
             query_id,
         )
+        if existing == status:
+            await notify_query_status(
+                conn,
+                query_id,
+                status,
+                error=error,
+                result_row_count=result_row_count,
+            )
     return existing == status
 
 
 async def mark_query_cancelled(pool: asyncpg.Pool, query_id: UUID, error: str | None = None) -> asyncpg.Record | None:
     async with pool.acquire() as conn:
-        return await conn.fetchrow(
+        row = await conn.fetchrow(
             """
             UPDATE queries
             SET status = 'cancelled',
                 error = COALESCE($2, error),
                 completed_at = now()
             WHERE query_id = $1 AND status IN ('pending', 'running')
-            RETURNING query_id, worker_id, status
+            RETURNING query_id, worker_id, status, error
             """,
             query_id,
             error,
         )
+        if row is not None:
+            await notify_query_status(conn, query_id, "cancelled", error=row["error"])
+        return row
 
 
 async def revert_query_to_pending(pool: asyncpg.Pool, query_id: UUID) -> None:
     async with pool.acquire() as conn:
-        await conn.execute(
+        result = await conn.execute(
             """
             UPDATE queries
             SET status = 'pending',
@@ -213,6 +233,8 @@ async def revert_query_to_pending(pool: asyncpg.Pool, query_id: UUID) -> None:
             """,
             query_id,
         )
+        if result.endswith("1"):
+            await notify_query_status(conn, query_id, "pending")
 
 
 _WORKER_FOR_QUERY_SQL = """
@@ -268,6 +290,7 @@ async def _claim_query(
         pending["query_id"],
         worker["worker_id"],
     )
+    await notify_query_status(conn, pending["query_id"], "running")
     return await conn.fetchrow(
         """
         SELECT q.query_id, q.query, q.cpus, q.memory, q.disk_space,
@@ -343,7 +366,7 @@ async def sweep_stale_workers(pool: asyncpg.Pool, worker_stale_sec: int) -> None
             if not stale_workers:
                 return
             worker_ids = [row["worker_id"] for row in stale_workers]
-            await conn.execute(
+            reverted = await conn.fetch(
                 """
                 UPDATE queries
                 SET status = 'pending',
@@ -351,6 +374,14 @@ async def sweep_stale_workers(pool: asyncpg.Pool, worker_stale_sec: int) -> None
                     started_at = NULL,
                     error = 'Worker became unreachable'
                 WHERE worker_id = ANY($1::uuid[]) AND status = 'running'
+                RETURNING query_id, error
                 """,
                 worker_ids,
             )
+            for row in reverted:
+                await notify_query_status(
+                    conn,
+                    row["query_id"],
+                    "pending",
+                    error=row["error"],
+                )

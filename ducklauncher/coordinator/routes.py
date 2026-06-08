@@ -1,11 +1,19 @@
 import asyncio
+from collections.abc import AsyncIterator
 from uuid import UUID
 
 import asyncpg
 import httpx
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 from ducklauncher.config import CoordinatorSettings, load_init_scripts
+from ducklauncher.coordinator.events import (
+    TERMINAL_QUERY_STATUSES,
+    QueryEventHub,
+    format_sse,
+    query_event_payload,
+)
 from ducklauncher.coordinator.scheduler import dispatch_query, trigger_schedule
 from ducklauncher.db import queries as db
 from ducklauncher.models import (
@@ -165,6 +173,46 @@ async def get_query(request: Request, query_id: UUID) -> QueryResponse:
     if row is None:
         raise HTTPException(status_code=404, detail="Query not found")
     return _query_response(row)
+
+
+@router.get("/queries/{query_id}/events")
+async def query_events(request: Request, query_id: UUID) -> StreamingResponse:
+    pool: asyncpg.Pool = request.app.state.pool
+    hub: QueryEventHub = request.app.state.event_hub
+    row = await db.get_query(pool, query_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Query not found")
+
+    async def event_stream() -> AsyncIterator[str]:
+        queue = hub.subscribe(query_id)
+        try:
+            yield format_sse(query_event_payload(row))
+            if row["status"] in TERMINAL_QUERY_STATUSES:
+                return
+
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+                    continue
+                yield format_sse(event)
+                if event.get("status") in TERMINAL_QUERY_STATUSES:
+                    break
+        finally:
+            hub.unsubscribe(query_id, queue)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/queries/{query_id}/result", response_model=QueryResultPage)

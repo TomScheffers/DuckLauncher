@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from ducklauncher.config import CoordinatorSettings
+from ducklauncher.coordinator.events import QueryEventHub, postgres_listen_loop
 from ducklauncher.coordinator.routes import router
 from ducklauncher.coordinator.scheduler import scheduler_loop
 from ducklauncher.db.pool import create_pool, run_migrations
@@ -23,6 +24,7 @@ def create_coordinator_app(settings: CoordinatorSettings | None = None) -> FastA
         app.state.settings = resolved_settings
         pool = await create_pool(resolved_settings.database_url)
         app.state.pool = pool
+        app.state.event_hub = QueryEventHub()
         http_client = httpx.AsyncClient(timeout=resolved_settings.dispatch_timeout_sec)
         app.state.http_client = http_client
         await run_migrations(pool)
@@ -32,9 +34,12 @@ def create_coordinator_app(settings: CoordinatorSettings | None = None) -> FastA
         scheduler_task = asyncio.create_task(
             scheduler_loop(pool, resolved_settings, http_client, stop_event)
         )
+        listen_task = asyncio.create_task(
+            postgres_listen_loop(resolved_settings.database_url, app.state.event_hub, stop_event)
+        )
         yield
         stop_event.set()
-        await scheduler_task
+        await asyncio.gather(scheduler_task, listen_task)
         await http_client.aclose()
         await pool.close()
 

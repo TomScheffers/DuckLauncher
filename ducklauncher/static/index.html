@@ -42,32 +42,62 @@
     h1 { margin: 0; font-size: 16px; font-weight: 600; }
     .workspace {
       flex: 1;
-      display: flex;
+      display: grid;
+      grid-template-columns: var(--sidebar-width) 4px minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr);
       min-height: 0;
     }
-    .sidebar, .editor-pane {
+    .sidebar {
+      grid-column: 1;
+      grid-row: 1;
+      min-width: 0;
       min-height: 0;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
-    .sidebar {
-      flex: 0 0 var(--sidebar-width);
-      width: var(--sidebar-width);
-      min-width: 240px;
-      max-width: 50%;
+    #sidebar-resize {
+      grid-column: 2;
+      grid-row: 1;
+      z-index: 1;
     }
     .editor-pane {
-      flex: 1;
+      grid-column: 3;
+      grid-row: 1;
       min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) 4px var(--results-height);
+      overflow: hidden;
+    }
+    .editor-area {
+      grid-row: 1;
+    }
+    #results-resize {
+      grid-row: 2;
+      z-index: 2;
+    }
+    .results-panel {
+      grid-row: 3;
     }
     .resize-handle {
-      flex-shrink: 0;
       background: var(--border);
       transition: background 0.15s;
+      position: relative;
+      touch-action: none;
     }
     .resize-handle:hover,
-    body.is-resizing .resize-handle {
+    .resize-handle.is-active {
       background: var(--accent);
+    }
+    .resize-handle.is-active {
+      transition: none;
+    }
+    .resize-shield {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      cursor: inherit;
     }
     .resize-v {
       width: 4px;
@@ -76,7 +106,14 @@
     .resize-h {
       height: 4px;
       cursor: row-resize;
-      flex-shrink: 0;
+    }
+    .resize-h::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: -5px;
+      bottom: -5px;
     }
     .panel {
       display: flex;
@@ -155,11 +192,11 @@
       background: var(--panel);
     }
     .editor-area {
-      flex: 1;
       min-height: 0;
       display: flex;
       flex-direction: column;
       background: var(--panel);
+      overflow: hidden;
     }
     #query-input {
       flex: 1;
@@ -174,13 +211,11 @@
       font: 13px/1.45 ui-monospace, monospace;
     }
     .results-panel {
-      flex: 0 0 var(--results-height);
-      height: var(--results-height);
-      min-height: 120px;
-      max-height: 70%;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       background: var(--panel);
+      overflow: hidden;
     }
     .results-header {
       flex: 0 0 auto;
@@ -219,6 +254,12 @@
       border: 1px solid var(--border);
       color: var(--text);
     }
+    button.cancel-btn {
+      background: #e05252;
+    }
+    button.cancel-btn:hover {
+      background: #c94444;
+    }
     .status {
       font-size: 12px;
       color: var(--muted);
@@ -228,14 +269,13 @@
     .status.failed, .status.cancelled { color: #f87171; }
     .pager { display: flex; gap: 8px; align-items: center; }
     @media (max-width: 900px) {
-      .workspace { flex-direction: column; }
-      .sidebar {
-        width: 100%;
-        max-width: none;
-        flex: 0 0 auto;
-        max-height: 40vh;
+      .workspace {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, 40vh) 4px minmax(0, 1fr);
       }
-      .resize-v { display: none; }
+      .sidebar { grid-column: 1; grid-row: 1; }
+      #sidebar-resize { grid-column: 1; grid-row: 2; width: 100%; height: 4px; cursor: row-resize; }
+      .editor-pane { grid-column: 1; grid-row: 3; }
     }
   </style>
 </head>
@@ -313,6 +353,8 @@
     const SIDEBAR_WIDTH_KEY = "ducklauncher-sidebar-width";
     const RESULTS_HEIGHT_KEY = "ducklauncher-results-height";
 
+    const editorPane = document.querySelector(".editor-pane");
+
     function loadPanelSizes() {
       const sidebar = localStorage.getItem(SIDEBAR_WIDTH_KEY);
       const results = localStorage.getItem(RESULTS_HEIGHT_KEY);
@@ -321,42 +363,53 @@
       }
       if (results) {
         document.documentElement.style.setProperty("--results-height", `${results}px`);
+        editorPane.style.gridTemplateRows = `minmax(0, 1fr) 4px ${results}px`;
       }
     }
 
-    function setupResize(handle, { axis, getContainer, getSize, setSize, min, max }) {
-      handle.addEventListener("mousedown", (event) => {
+    function setupResize(handle, { axis, getContainer, getSize, setSize, min, max, storageKey }) {
+      handle.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
         event.preventDefault();
+        event.stopPropagation();
+
         const container = getContainer();
         const startPos = axis === "x" ? event.clientX : event.clientY;
         const startSize = getSize();
+        const cursor = axis === "x" ? "col-resize" : "row-resize";
 
-        document.body.classList.add("is-resizing");
-        document.body.style.cursor = axis === "x" ? "col-resize" : "row-resize";
+        handle.classList.add("is-active");
+        handle.setPointerCapture(event.pointerId);
+
+        const shield = document.createElement("div");
+        shield.className = "resize-shield";
+        shield.style.cursor = cursor;
+        document.body.appendChild(shield);
         document.body.style.userSelect = "none";
 
-        function onMove(moveEvent) {
+        function applySize(moveEvent) {
           const currentPos = axis === "x" ? moveEvent.clientX : moveEvent.clientY;
           const delta = currentPos - startPos;
+          const sizeDelta = axis === "y" ? -delta : delta;
           const maxSize = typeof max === "function" ? max(container) : max;
-          const nextSize = Math.min(maxSize, Math.max(min, startSize + delta));
+          const nextSize = Math.min(maxSize, Math.max(min, startSize + sizeDelta));
           setSize(nextSize);
         }
 
         function onUp() {
-          document.removeEventListener("mousemove", onMove);
-          document.removeEventListener("mouseup", onUp);
-          document.body.classList.remove("is-resizing");
-          document.body.style.cursor = "";
+          handle.releasePointerCapture(event.pointerId);
+          handle.removeEventListener("pointermove", applySize);
+          handle.removeEventListener("pointerup", onUp);
+          handle.removeEventListener("pointercancel", onUp);
+          handle.classList.remove("is-active");
+          shield.remove();
           document.body.style.userSelect = "";
-          localStorage.setItem(
-            axis === "x" ? SIDEBAR_WIDTH_KEY : RESULTS_HEIGHT_KEY,
-            String(Math.round(getSize()))
-          );
+          localStorage.setItem(storageKey, String(Math.round(getSize())));
         }
 
-        document.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseup", onUp);
+        handle.addEventListener("pointermove", applySize);
+        handle.addEventListener("pointerup", onUp);
+        handle.addEventListener("pointercancel", onUp);
       });
     }
 
@@ -364,9 +417,9 @@
 
     setupResize(document.getElementById("sidebar-resize"), {
       axis: "x",
+      storageKey: SIDEBAR_WIDTH_KEY,
       getContainer: () => document.querySelector(".workspace"),
-      getSize: () =>
-        document.querySelector(".sidebar").getBoundingClientRect().width,
+      getSize: () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width")),
       setSize: (width) =>
         document.documentElement.style.setProperty("--sidebar-width", `${width}px`),
       min: 240,
@@ -375,21 +428,44 @@
 
     setupResize(document.getElementById("results-resize"), {
       axis: "y",
-      getContainer: () => document.querySelector(".editor-pane"),
-      getSize: () =>
-        document.querySelector(".results-panel").getBoundingClientRect().height,
-      setSize: (height) =>
-        document.documentElement.style.setProperty("--results-height", `${height}px`),
+      storageKey: RESULTS_HEIGHT_KEY,
+      getContainer: () => editorPane,
+      getSize: () => {
+        const rows = getComputedStyle(editorPane).gridTemplateRows.split(" ");
+        return parseFloat(rows[2]);
+      },
+      setSize: (height) => {
+        editorPane.style.gridTemplateRows = `minmax(0, 1fr) 4px ${height}px`;
+        document.documentElement.style.setProperty("--results-height", `${height}px`);
+      },
       min: 120,
-      max: (container) => container.getBoundingClientRect().height * 0.7,
+      max: (container) => container.getBoundingClientRect().height - 140,
     });
 
     const PAGE_SIZE = 50;
     let currentQueryId = null;
     let resultOffset = 0;
     let resultTotal = 0;
-    let pollTimer = null;
+    let queryEventSource = null;
+    let queryRunning = false;
     const expandedNodes = new Set();
+
+    function setRunButtonMode(mode) {
+      const btn = document.getElementById("run-btn");
+      if (mode === "run") {
+        queryRunning = false;
+        btn.textContent = "Run";
+        btn.disabled = false;
+        btn.classList.remove("cancel-btn");
+      } else if (mode === "cancel") {
+        queryRunning = true;
+        btn.textContent = "Cancel";
+        btn.disabled = false;
+        btn.classList.add("cancel-btn");
+      } else {
+        btn.disabled = true;
+      }
+    }
 
     function fmtPct(value) {
       if (value == null) return "—";
@@ -571,16 +647,15 @@
       document.getElementById("pager").hidden = true;
     }
 
-    async function pollQuery(queryId) {
-      const query = await api(`/queries/${queryId}`);
-      setQueryStatus(query.status, query.status);
-
-      if (query.status === "pending" || query.status === "running") {
-        pollTimer = setTimeout(() => pollQuery(queryId), 300);
-        return;
+    function stopQueryEvents() {
+      if (queryEventSource) {
+        queryEventSource.close();
+        queryEventSource = null;
       }
+    }
 
-      document.getElementById("run-btn").disabled = false;
+    async function finishQuery(query) {
+      setRunButtonMode("run");
       if (query.status === "completed" && query.result_row_count != null) {
         resultOffset = 0;
         resultTotal = query.result_row_count;
@@ -594,6 +669,40 @@
         hideResultTable();
         document.getElementById("result-empty").textContent = "Query finished without result rows.";
       }
+    }
+
+    async function handleQueryEvent(query) {
+      setQueryStatus(query.status, query.status);
+      if (query.status === "pending" || query.status === "running") {
+        setRunButtonMode("cancel");
+        return;
+      }
+      stopQueryEvents();
+      await finishQuery(query);
+    }
+
+    function watchQuery(queryId) {
+      stopQueryEvents();
+      const source = new EventSource(`/queries/${queryId}/events`);
+      queryEventSource = source;
+
+      source.addEventListener("status", (event) => {
+        handleQueryEvent(JSON.parse(event.data)).catch((err) => {
+          setRunButtonMode("run");
+          setQueryStatus(err.message || "Failed to handle query update", "failed");
+        });
+      });
+
+      source.onerror = async () => {
+        stopQueryEvents();
+        if (!queryRunning) return;
+        try {
+          await handleQueryEvent(await api(`/queries/${queryId}`));
+        } catch (err) {
+          setRunButtonMode("run");
+          setQueryStatus(err.message || "Lost query event stream", "failed");
+        }
+      };
     }
 
     async function loadResultPage() {
@@ -626,12 +735,12 @@
       const sql = document.getElementById("query-input").value.trim();
       if (!sql) return;
 
-      if (pollTimer) clearTimeout(pollTimer);
+      stopQueryEvents();
       currentQueryId = null;
       hideResultTable();
       document.getElementById("result-empty").textContent = "Running query...";
       document.getElementById("result-meta").textContent = "";
-      document.getElementById("run-btn").disabled = true;
+      setRunButtonMode("disabled");
       setQueryStatus("submitting");
 
       const created = await api("/queries", {
@@ -642,12 +751,21 @@
 
       currentQueryId = created.query_id;
       setQueryStatus(created.status, created.status);
-      pollQuery(currentQueryId);
+      setRunButtonMode("cancel");
+      watchQuery(currentQueryId);
+    }
+
+    async function cancelQuery() {
+      if (!currentQueryId) return;
+      setRunButtonMode("disabled");
+      setQueryStatus("cancelling", "running");
+      await api(`/queries/${currentQueryId}/cancel`, { method: "POST" });
     }
 
     document.getElementById("run-btn").addEventListener("click", () => {
-      runQuery().catch((err) => {
-        document.getElementById("run-btn").disabled = false;
+      const action = queryRunning ? cancelQuery() : runQuery();
+      action.catch((err) => {
+        setRunButtonMode("run");
         setQueryStatus(err.message || "Request failed", "failed");
       });
     });
