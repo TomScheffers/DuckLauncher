@@ -16,91 +16,226 @@
       --accent: #3d8bfd;
       --ok: #3dd68c;
       --warn: #f5a524;
+      --tree-hover: #243044;
+      --sidebar-width: 320px;
+      --results-height: 280px;
     }
     * { box-sizing: border-box; }
+    html, body { height: 100%; }
     body {
       margin: 0;
+      display: flex;
+      flex-direction: column;
       font: 14px/1.5 system-ui, sans-serif;
       background: var(--bg);
       color: var(--text);
+      overflow: hidden;
     }
     header {
-      padding: 16px 24px;
+      flex: 0 0 auto;
+      padding: 10px 16px;
       border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
       align-items: center;
     }
-    h1 { margin: 0; font-size: 18px; font-weight: 600; }
-    main {
-      display: grid;
-      grid-template-columns: 1fr 1.2fr;
-      gap: 16px;
-      padding: 16px 24px 24px;
-      max-width: 1400px;
+    h1 { margin: 0; font-size: 16px; font-weight: 600; }
+    .workspace {
+      flex: 1;
+      display: flex;
+      min-height: 0;
     }
-    section {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 16px;
+    .sidebar, .editor-pane {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
     }
-    h2 {
-      margin: 0 0 12px;
-      font-size: 13px;
+    .sidebar {
+      flex: 0 0 var(--sidebar-width);
+      width: var(--sidebar-width);
+      min-width: 240px;
+      max-width: 50%;
+    }
+    .editor-pane {
+      flex: 1;
+      min-width: 0;
+    }
+    .resize-handle {
+      flex-shrink: 0;
+      background: var(--border);
+      transition: background 0.15s;
+    }
+    .resize-handle:hover,
+    body.is-resizing .resize-handle {
+      background: var(--accent);
+    }
+    .resize-v {
+      width: 4px;
+      cursor: col-resize;
+    }
+    .resize-h {
+      height: 4px;
+      cursor: row-resize;
+      flex-shrink: 0;
+    }
+    .panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel:last-child { border-bottom: none; }
+    .panel-header {
+      flex: 0 0 auto;
+      padding: 8px 12px;
+      font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.04em;
       color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
     }
+    .panel-body {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      background: var(--panel);
+    }
+    .workers-panel { flex: 0 0 auto; max-height: 220px; }
+    .explorer-panel { flex: 1; }
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 13px;
+      font-size: 12px;
     }
     th, td {
       text-align: left;
-      padding: 8px 6px;
+      padding: 6px 10px;
       border-bottom: 1px solid var(--border);
       vertical-align: top;
     }
     th { color: var(--muted); font-weight: 500; }
     tr:last-child td { border-bottom: none; }
-    textarea {
+    .empty {
+      color: var(--muted);
+      font-size: 12px;
+      padding: 12px;
+    }
+    .tree { list-style: none; margin: 0; padding: 6px 0; }
+    .tree ul { list-style: none; margin: 0; padding-left: 14px; }
+    .tree-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px 3px 6px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 12px;
+    }
+    .tree-item:hover { background: var(--tree-hover); }
+    .tree-item.leaf { cursor: default; padding-left: 22px; color: var(--muted); }
+    .tree-item.leaf .label { font-family: ui-monospace, monospace; color: var(--text); }
+    .tree-item .type { color: var(--muted); margin-left: 6px; font-size: 11px; }
+    .chevron {
+      width: 14px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 10px;
+      flex: 0 0 14px;
+    }
+    .chevron.empty { visibility: hidden; }
+    .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .editor-toolbar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    .editor-area {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+    }
+    #query-input {
+      flex: 1;
       width: 100%;
-      min-height: 120px;
-      resize: vertical;
+      min-height: 0;
+      resize: none;
+      border: none;
+      outline: none;
       background: var(--bg);
       color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 10px;
-      font: 13px/1.4 ui-monospace, monospace;
+      padding: 12px;
+      font: 13px/1.45 ui-monospace, monospace;
+    }
+    .results-panel {
+      flex: 0 0 var(--results-height);
+      height: var(--results-height);
+      min-height: 120px;
+      max-height: 70%;
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+    }
+    .results-header {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .results-header h2 {
+      margin: 0;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    .results-body {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
     }
     button {
       background: var(--accent);
       color: #fff;
       border: none;
       border-radius: 6px;
-      padding: 8px 14px;
+      padding: 6px 12px;
       font: inherit;
+      font-size: 13px;
       cursor: pointer;
     }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+    button.secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
     .status {
       font-size: 12px;
       color: var(--muted);
-      min-height: 18px;
     }
     .status.running { color: var(--warn); }
     .status.completed { color: var(--ok); }
     .status.failed, .status.cancelled { color: #f87171; }
-    .empty { color: var(--muted); font-size: 13px; }
-    .pager { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
-    .pager button { background: var(--panel); border: 1px solid var(--border); color: var(--text); }
-    .result-wrap { overflow: auto; max-height: 360px; margin-top: 10px; }
+    .pager { display: flex; gap: 8px; align-items: center; }
     @media (max-width: 900px) {
-      main { grid-template-columns: 1fr; }
+      .workspace { flex-direction: column; }
+      .sidebar {
+        width: 100%;
+        max-width: none;
+        flex: 0 0 auto;
+        max-height: 40vh;
+      }
+      .resize-v { display: none; }
     }
   </style>
 </head>
@@ -109,52 +244,152 @@
     <h1>🦆 DuckLauncher</h1>
     <span id="clock" class="status"></span>
   </header>
-  <main>
-    <section>
-      <h2>Workers</h2>
-      <div id="workers-empty" class="empty">No workers registered.</div>
-      <table id="workers-table" hidden>
-        <thead>
-          <tr>
-            <th>Worker</th>
-            <th>Queries</th>
-            <th>Memory</th>
-            <th>CPU</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="workers-body"></tbody>
-      </table>
-    </section>
 
-    <section>
-      <h2>Query</h2>
-      <textarea id="query-input" placeholder="SELECT 42 AS answer"></textarea>
-      <div class="row">
-        <button id="run-btn">Run query</button>
-        <span id="query-status" class="status"></span>
+  <div class="workspace">
+    <aside class="sidebar">
+      <section class="panel workers-panel">
+        <div class="panel-header">Workers</div>
+        <div class="panel-body">
+          <div id="workers-empty" class="empty">No workers registered.</div>
+          <table id="workers-table" hidden>
+            <thead>
+              <tr>
+                <th>Worker</th>
+                <th>Queries</th>
+                <th>Memory</th>
+                <th>CPU</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="workers-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel explorer-panel">
+        <div class="panel-header">Database Explorer</div>
+        <div class="panel-body">
+          <div id="catalog-empty" class="empty">No catalog available.</div>
+          <ul id="catalog-tree" class="tree" hidden></ul>
+        </div>
+      </section>
+    </aside>
+
+    <div class="resize-handle resize-v" id="sidebar-resize" aria-hidden="true"></div>
+
+    <section class="editor-pane">
+      <div class="editor-area">
+        <div class="editor-toolbar">
+          <button id="run-btn">Run</button>
+          <span id="query-status" class="status"></span>
+        </div>
+        <textarea id="query-input" placeholder="SELECT 42 AS answer" spellcheck="false"></textarea>
       </div>
-      <div id="result-meta" class="status" style="margin-top: 10px;"></div>
-      <div class="result-wrap">
-        <table id="result-table" hidden>
-          <thead id="result-head"></thead>
-          <tbody id="result-body"></tbody>
-        </table>
-      </div>
-      <div class="pager" id="pager" hidden>
-        <button id="prev-page">Prev</button>
-        <span id="page-info" class="status"></span>
-        <button id="next-page">Next</button>
-      </div>
+
+      <div class="resize-handle resize-h" id="results-resize" aria-hidden="true"></div>
+
+      <section class="results-panel">
+        <div class="results-header">
+          <h2>Results</h2>
+          <div class="pager" id="pager" hidden>
+            <button id="prev-page" class="secondary">Prev</button>
+            <span id="page-info" class="status"></span>
+            <button id="next-page" class="secondary">Next</button>
+          </div>
+        </div>
+        <div id="result-meta" class="status" style="padding: 8px 12px 0;"></div>
+        <div class="results-body">
+          <div id="result-empty" class="empty">Run a query to see results.</div>
+          <table id="result-table" hidden>
+            <thead id="result-head"></thead>
+            <tbody id="result-body"></tbody>
+          </table>
+        </div>
+      </section>
     </section>
-  </main>
+  </div>
 
   <script>
+    const SIDEBAR_WIDTH_KEY = "ducklauncher-sidebar-width";
+    const RESULTS_HEIGHT_KEY = "ducklauncher-results-height";
+
+    function loadPanelSizes() {
+      const sidebar = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+      const results = localStorage.getItem(RESULTS_HEIGHT_KEY);
+      if (sidebar) {
+        document.documentElement.style.setProperty("--sidebar-width", `${sidebar}px`);
+      }
+      if (results) {
+        document.documentElement.style.setProperty("--results-height", `${results}px`);
+      }
+    }
+
+    function setupResize(handle, { axis, getContainer, getSize, setSize, min, max }) {
+      handle.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        const container = getContainer();
+        const startPos = axis === "x" ? event.clientX : event.clientY;
+        const startSize = getSize();
+
+        document.body.classList.add("is-resizing");
+        document.body.style.cursor = axis === "x" ? "col-resize" : "row-resize";
+        document.body.style.userSelect = "none";
+
+        function onMove(moveEvent) {
+          const currentPos = axis === "x" ? moveEvent.clientX : moveEvent.clientY;
+          const delta = currentPos - startPos;
+          const maxSize = typeof max === "function" ? max(container) : max;
+          const nextSize = Math.min(maxSize, Math.max(min, startSize + delta));
+          setSize(nextSize);
+        }
+
+        function onUp() {
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          document.body.classList.remove("is-resizing");
+          document.body.style.cursor = "";
+          document.body.style.userSelect = "";
+          localStorage.setItem(
+            axis === "x" ? SIDEBAR_WIDTH_KEY : RESULTS_HEIGHT_KEY,
+            String(Math.round(getSize()))
+          );
+        }
+
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+    }
+
+    loadPanelSizes();
+
+    setupResize(document.getElementById("sidebar-resize"), {
+      axis: "x",
+      getContainer: () => document.querySelector(".workspace"),
+      getSize: () =>
+        document.querySelector(".sidebar").getBoundingClientRect().width,
+      setSize: (width) =>
+        document.documentElement.style.setProperty("--sidebar-width", `${width}px`),
+      min: 240,
+      max: (container) => container.getBoundingClientRect().width * 0.5,
+    });
+
+    setupResize(document.getElementById("results-resize"), {
+      axis: "y",
+      getContainer: () => document.querySelector(".editor-pane"),
+      getSize: () =>
+        document.querySelector(".results-panel").getBoundingClientRect().height,
+      setSize: (height) =>
+        document.documentElement.style.setProperty("--results-height", `${height}px`),
+      min: 120,
+      max: (container) => container.getBoundingClientRect().height * 0.7,
+    });
+
     const PAGE_SIZE = 50;
     let currentQueryId = null;
     let resultOffset = 0;
     let resultTotal = 0;
     let pollTimer = null;
+    const expandedNodes = new Set();
 
     function fmtPct(value) {
       if (value == null) return "—";
@@ -162,12 +397,16 @@
     }
 
     function fmtMemory(used, total) {
-      if (used == null) return `${total} MB avail`;
+      if (used == null) return `${total} MB`;
       return `${used} / ${total} MB`;
     }
 
     function shortId(id) {
       return id ? id.slice(0, 8) : "—";
+    }
+
+    function nodeKey(parts) {
+      return parts.join(".");
     }
 
     async function api(path, options) {
@@ -208,15 +447,133 @@
       }
     }
 
+    function createTreeNode(label, key, children, options = {}) {
+      const li = document.createElement("li");
+      const hasChildren = children.length > 0;
+      const isOpen = expandedNodes.has(key);
+      const row = document.createElement("div");
+      row.className = "tree-item" + (options.leaf ? " leaf" : "");
+      row.innerHTML = `
+        <span class="chevron ${hasChildren ? "" : "empty"}">${hasChildren ? (isOpen ? "▼" : "▶") : ""}</span>
+        <span class="label">${label}</span>
+        ${options.type ? `<span class="type">${options.type}</span>` : ""}
+      `;
+
+      const childList = document.createElement("ul");
+      childList.hidden = !isOpen;
+      for (const child of children) {
+        childList.appendChild(child);
+      }
+
+      if (hasChildren) {
+        row.addEventListener("click", (event) => {
+          event.stopPropagation();
+          if (expandedNodes.has(key)) {
+            expandedNodes.delete(key);
+          } else {
+            expandedNodes.add(key);
+          }
+          refreshCatalogTree();
+        });
+      }
+
+      if (options.onActivate) {
+        row.addEventListener("dblclick", (event) => {
+          event.stopPropagation();
+          options.onActivate();
+        });
+      }
+
+      li.appendChild(row);
+      if (hasChildren) li.appendChild(childList);
+      return li;
+    }
+
+    function renderCatalog(catalog) {
+      const tree = document.getElementById("catalog-tree");
+      const empty = document.getElementById("catalog-empty");
+      tree.innerHTML = "";
+
+      if (!catalog.databases.length) {
+        tree.hidden = true;
+        empty.hidden = false;
+        empty.textContent = "No databases found.";
+        return;
+      }
+
+      empty.hidden = true;
+      tree.hidden = false;
+
+      for (const database of catalog.databases) {
+        const dbKey = nodeKey([database.name]);
+        const schemaNodes = database.schemas.map((schema) => {
+          const schemaKey = nodeKey([database.name, schema.name]);
+          const tableNodes = schema.tables.map((table) => {
+            const tableKey = nodeKey([database.name, schema.name, table.name]);
+            const qualified = `${database.name}.${schema.name}.${table.name}`;
+            const columnNodes = table.columns.map((column) =>
+              createTreeNode(column.name, nodeKey([qualified, column.name]), [], {
+                leaf: true,
+                type: column.type,
+              })
+            );
+            return createTreeNode(table.name, tableKey, columnNodes, {
+              onActivate: () => insertText(qualified),
+            });
+          });
+          return createTreeNode(schema.name, schemaKey, tableNodes);
+        });
+        tree.appendChild(createTreeNode(database.name, dbKey, schemaNodes));
+      }
+    }
+
+    let catalogTree = null;
+
+    function refreshCatalogTree() {
+      if (catalogTree) renderCatalog(catalogTree);
+    }
+
+    async function refreshCatalog() {
+      try {
+        catalogTree = await api("/catalog");
+        renderCatalog(catalogTree);
+      } catch {
+        catalogTree = null;
+        document.getElementById("catalog-tree").hidden = true;
+        const empty = document.getElementById("catalog-empty");
+        empty.hidden = false;
+        empty.textContent = "No catalog available.";
+      }
+    }
+
+    function insertText(text) {
+      const editor = document.getElementById("query-input");
+      const start = editor.selectionStart;
+      const end = editor.selectionEnd;
+      const before = editor.value.slice(0, start);
+      const after = editor.value.slice(end);
+      editor.value = `${before}${text}${after}`;
+      const cursor = start + text.length;
+      editor.selectionStart = cursor;
+      editor.selectionEnd = cursor;
+      editor.focus();
+    }
+
     function setQueryStatus(text, statusClass) {
       const el = document.getElementById("query-status");
       el.textContent = text;
       el.className = "status" + (statusClass ? ` ${statusClass}` : "");
     }
 
+    function hideResultTable() {
+      document.getElementById("result-table").hidden = true;
+      document.getElementById("result-empty").hidden = false;
+      document.getElementById("pager").hidden = true;
+    }
+
     async function pollQuery(queryId) {
       const query = await api(`/queries/${queryId}`);
-      setQueryStatus(`${query.status}`, query.status);
+      setQueryStatus(query.status, query.status);
 
       if (query.status === "pending" || query.status === "running") {
         pollTimer = setTimeout(() => pollQuery(queryId), 300);
@@ -231,15 +588,12 @@
       } else if (query.error) {
         document.getElementById("result-meta").textContent = query.error;
         hideResultTable();
+        document.getElementById("result-empty").textContent = query.error;
       } else {
         document.getElementById("result-meta").textContent = "Query finished without result rows.";
         hideResultTable();
+        document.getElementById("result-empty").textContent = "Query finished without result rows.";
       }
-    }
-
-    function hideResultTable() {
-      document.getElementById("result-table").hidden = true;
-      document.getElementById("pager").hidden = true;
     }
 
     async function loadResultPage() {
@@ -257,6 +611,7 @@
         .join("");
 
       document.getElementById("result-table").hidden = false;
+      document.getElementById("result-empty").hidden = true;
       document.getElementById("result-meta").textContent = `${resultTotal} row(s)`;
 
       const pager = document.getElementById("pager");
@@ -274,6 +629,7 @@
       if (pollTimer) clearTimeout(pollTimer);
       currentQueryId = null;
       hideResultTable();
+      document.getElementById("result-empty").textContent = "Running query...";
       document.getElementById("result-meta").textContent = "";
       document.getElementById("run-btn").disabled = true;
       setQueryStatus("submitting");
@@ -285,7 +641,7 @@
       });
 
       currentQueryId = created.query_id;
-      setQueryStatus(`${created.status}`, created.status);
+      setQueryStatus(created.status, created.status);
       pollQuery(currentQueryId);
     }
 
@@ -294,6 +650,13 @@
         document.getElementById("run-btn").disabled = false;
         setQueryStatus(err.message || "Request failed", "failed");
       });
+    });
+
+    document.getElementById("query-input").addEventListener("keydown", (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
+        document.getElementById("run-btn").click();
+      }
     });
 
     document.getElementById("prev-page").addEventListener("click", () => {
@@ -312,6 +675,8 @@
     }, 2000);
 
     refreshWorkers().catch(() => {});
+    refreshCatalog().catch(() => {});
+    setInterval(() => refreshCatalog().catch(() => {}), 10000);
   </script>
 </body>
 </html>

@@ -1,7 +1,11 @@
+import os
+import re
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_VAR = re.compile(r"\$\{([^}:]+)(?::-([^}]*))?\}")
 
 WORKER_DATA_ROOT = Path("/tmp/ducklauncher/workers")
 
@@ -68,8 +72,68 @@ def worker_connection_pool_size(settings: WorkerSettings) -> int:
     return settings.connection_pool_size or settings.max_concurrent_queries
 
 
+def default_init_scripts_path() -> Path | None:
+    path = Path("init.sql")
+    if path.is_file():
+        return path.resolve()
+    return None
+
+
+def resolve_init_scripts_path(explicit: str | Path | None = None) -> str | None:
+    if explicit is not None:
+        return str(explicit)
+    default = default_init_scripts_path()
+    return str(default) if default is not None else None
+
+
+def _sql_escape(value: str) -> str:
+    return value.replace("'", "''")
+
+
+def _env_default(name: str, inline_default: str | None) -> str:
+    if name in os.environ:
+        return os.environ[name]
+    if name == "ICEBERG_OAUTH_URI":
+        endpoint = os.environ.get("ICEBERG_ENDPOINT", inline_default or "")
+        if not endpoint:
+            raise KeyError(name)
+        return f"{endpoint.rstrip('/')}/v1/oauth/tokens"
+    if inline_default is not None:
+        return inline_default
+    raise KeyError(name)
+
+
+def expand_init_sql(content: str) -> str:
+    def replacer(match: re.Match[str]) -> str:
+        name = match.group(1)
+        inline_default = match.group(2)
+        try:
+            value = _env_default(name, inline_default)
+        except KeyError:
+            return match.group(0)
+        return _sql_escape(value)
+
+    return _ENV_VAR.sub(replacer, content)
+
+
+def _executable_sql(statement: str) -> bool:
+    for line in statement.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("--"):
+            return True
+    return False
+
+
+def cache_httpfs_enabled() -> bool:
+    return os.environ.get("CACHE_HTTPFS_ENABLED", "1").lower() not in ("0", "false", "no")
+
+
 def load_init_scripts(path: str | None) -> list[str]:
-    if not path:
+    resolved = resolve_init_scripts_path(path)
+    if not resolved:
         return []
-    content = Path(path).read_text()
-    return [stmt.strip() for stmt in content.split(";") if stmt.strip()]
+    content = expand_init_sql(Path(resolved).read_text())
+    statements = [stmt.strip() for stmt in content.split(";") if _executable_sql(stmt)]
+    if not cache_httpfs_enabled():
+        statements = [stmt for stmt in statements if "cache_httpfs" not in stmt.lower()]
+    return statements

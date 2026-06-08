@@ -9,6 +9,7 @@ from ducklauncher.config import CoordinatorSettings, load_init_scripts
 from ducklauncher.coordinator.scheduler import dispatch_query, trigger_schedule
 from ducklauncher.db import queries as db
 from ducklauncher.models import (
+    CatalogResponse,
     CompleteQueryRequest,
     QueryResponse,
     QueryResultPage,
@@ -87,6 +88,22 @@ async def list_workers(request: Request) -> list[WorkerResponse]:
     pool: asyncpg.Pool = request.app.state.pool
     rows = await db.list_workers(pool)
     return [_worker_response(row) for row in rows]
+
+
+@router.get("/catalog", response_model=CatalogResponse)
+async def get_catalog(request: Request) -> CatalogResponse:
+    pool: asyncpg.Pool = request.app.state.pool
+    http_client: httpx.AsyncClient = request.app.state.http_client
+    worker = await _get_first_worker(pool)
+    if worker is None:
+        raise HTTPException(status_code=404, detail="No workers available")
+    endpoint = worker["endpoint"].rstrip("/")
+    try:
+        response = await http_client.get(f"{endpoint}/catalog")
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch catalog from worker: {exc}") from exc
+    return CatalogResponse.model_validate(response.json())
 
 
 @router.post("/workers/{worker_id}/heartbeat")
@@ -245,6 +262,13 @@ async def cancel_query(request: Request, query_id: UUID) -> QueryResponse:
         raise HTTPException(status_code=409, detail="Query could not be cancelled")
     updated = await db.get_query(pool, query_id)
     return _query_response(updated)
+
+
+async def _get_first_worker(pool: asyncpg.Pool) -> asyncpg.Record | None:
+    workers = await db.list_workers(pool)
+    if not workers:
+        return None
+    return workers[0]
 
 
 async def _get_worker_endpoint(pool: asyncpg.Pool, worker_id: UUID | None) -> asyncpg.Record | None:

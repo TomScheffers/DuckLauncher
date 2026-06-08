@@ -11,7 +11,12 @@ import uvicorn
 from ducklauncher import __version__
 from ducklauncher.apps.coordinator import create_coordinator_app
 from ducklauncher.apps.worker import create_worker_app
-from ducklauncher.config import CoordinatorSettings, WorkerSettings, default_worker_id_path
+from ducklauncher.config import (
+    CoordinatorSettings,
+    WorkerSettings,
+    default_worker_id_path,
+    resolve_init_scripts_path,
+)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -45,9 +50,12 @@ def coordinator(
     scheduler_interval_sec: float | None,
 ) -> None:
     """Run the DuckLauncher coordinator."""
+    resolved_init_scripts = resolve_init_scripts_path(init_scripts)
+    if resolved_init_scripts:
+        logging.info("Using init scripts from %s", resolved_init_scripts)
     settings = _build_settings(
         CoordinatorSettings,
-        init_scripts_path=str(init_scripts) if init_scripts else None,
+        init_scripts_path=resolved_init_scripts,
         database_url=database_url,
         heartbeat_interval_sec=heartbeat_interval_sec,
         worker_stale_sec=worker_stale_sec,

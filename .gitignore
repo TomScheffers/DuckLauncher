@@ -147,6 +147,9 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
+# Local DuckDB init scripts (may contain secrets / attach paths)
+init.sql
+
 # Environments
 .env
 .envrc

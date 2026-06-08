@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from ducklauncher.models import (
     CancelQueryRequest,
+    CatalogResponse,
     CompleteQueryRequest,
     Metrics,
     QueryResultPage,
@@ -28,6 +29,13 @@ def _running_task_count(app) -> int:
 @router.post("/metrics", response_model=Metrics)
 async def metrics() -> Metrics:
     return await collect_metrics()
+
+
+@router.get("/catalog", response_model=CatalogResponse)
+async def get_catalog(request: Request) -> CatalogResponse:
+    executor: DuckDBExecutor = request.app.state.executor
+    catalog = await asyncio.to_thread(executor.introspect_catalog)
+    return CatalogResponse.model_validate(catalog)
 
 
 @router.post("/query", status_code=202)

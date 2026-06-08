@@ -98,3 +98,27 @@ class Metrics(BaseModel):
     memory_left_mb: int
     cpu_count: int
     cpu_usage: float
+
+
+class CatalogColumn(BaseModel):
+    name: str
+    type: str
+
+
+class CatalogTable(BaseModel):
+    name: str
+    columns: list[CatalogColumn]
+
+
+class CatalogSchema(BaseModel):
+    name: str
+    tables: list[CatalogTable]
+
+
+class CatalogDatabase(BaseModel):
+    name: str
+    schemas: list[CatalogSchema]
+
+
+class CatalogResponse(BaseModel):
+    databases: list[CatalogDatabase]

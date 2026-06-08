@@ -95,22 +95,111 @@ class DuckDBExecutor:
         if path.exists():
             path.unlink()
 
+    @staticmethod
+    def _quote_identifier(name: str) -> str:
+        return '"' + name.replace('"', '""') + '"'
+
+    def introspect_catalog(self) -> dict:
+        rows = self._admin_conn.execute(
+            """
+            SELECT
+                table_catalog AS database_name,
+                table_schema AS schema_name,
+                table_name,
+                column_name,
+                data_type,
+                ordinal_position
+            FROM information_schema.columns
+            WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
+            ORDER BY
+                database_name,
+                schema_name,
+                table_name,
+                ordinal_position
+            """
+        ).fetchall()
+
+        databases: dict[str, dict[str, dict[str, list[dict[str, str | int]]]]] = {}
+        database_order: list[str] = []
+        schema_order: dict[str, list[str]] = {}
+        table_order: dict[tuple[str, str], list[str]] = {}
+
+        for database_name, schema_name, table_name, column_name, data_type, ordinal_position in rows:
+            if database_name not in databases:
+                databases[database_name] = {}
+                database_order.append(database_name)
+            db = databases[database_name]
+
+            if schema_name not in db:
+                db[schema_name] = {}
+                schema_order.setdefault(database_name, []).append(schema_name)
+
+            schema = db[schema_name]
+            table_key = (database_name, schema_name)
+            if table_name not in schema:
+                schema[table_name] = []
+                table_order.setdefault(table_key, []).append(table_name)
+
+            schema[table_name].append(
+                {"name": column_name, "type": data_type, "ordinal_position": ordinal_position}
+            )
+
+        return {
+            "databases": [
+                {
+                    "name": database_name,
+                    "schemas": [
+                        {
+                            "name": schema_name,
+                            "tables": [
+                                {
+                                    "name": table_name,
+                                    "columns": [
+                                        {"name": column["name"], "type": column["type"]}
+                                        for column in sorted(
+                                            schema[table_name],
+                                            key=lambda column: column["ordinal_position"],
+                                        )
+                                    ],
+                                }
+                                for table_name in table_order.get((database_name, schema_name), [])
+                            ],
+                        }
+                        for schema_name in schema_order.get(database_name, [])
+                    ],
+                }
+                for database_name in database_order
+            ]
+        }
+
     def read_result_page(self, query_id: UUID, offset: int, limit: int) -> dict:
         path = self.result_path(query_id)
         if not path.exists():
             raise FileNotFoundError(f"No result file for query {query_id}")
+        path_str = str(path)
         total_rows = self._admin_conn.execute(
             "SELECT count(*) FROM read_parquet(?)",
-            [str(path)],
+            [path_str],
         ).fetchone()[0]
         preview = self._admin_conn.execute(
             "SELECT * FROM read_parquet(?) LIMIT 0",
-            [str(path)],
+            [path_str],
         )
         columns = [col[0] for col in preview.description]
+        quoted_columns = ", ".join(self._quote_identifier(column) for column in columns)
         rows = self._admin_conn.execute(
-            "SELECT * FROM read_parquet(?) LIMIT ? OFFSET ?",
-            [str(path), limit, offset],
+            f"""
+            SELECT {quoted_columns}
+            FROM (
+                SELECT
+                    {quoted_columns},
+                    row_number() OVER (ORDER BY (SELECT 1)) AS __ducklauncher_row__
+                FROM read_parquet(?)
+            )
+            ORDER BY __ducklauncher_row__
+            LIMIT ? OFFSET ?
+            """,
+            [path_str, limit, offset],
         ).fetchall()
         return {
             "total_rows": total_rows,

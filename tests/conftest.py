@@ -117,6 +117,8 @@ async def launcher_stack(db_url: str, tmp_path: Path) -> Iterator[dict[str, str]
     coordinator_url = f"http://127.0.0.1:{coord_port}"
     worker_url = f"http://127.0.0.1:{worker_port}"
     duckdb_path = str(tmp_path / "test.duckdb")
+    empty_init = tmp_path / "empty_init.sql"
+    empty_init.write_text("")
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
@@ -148,6 +150,8 @@ async def launcher_stack(db_url: str, tmp_path: Path) -> Iterator[dict[str, str]
             "127.0.0.1",
             "--port",
             str(coord_port),
+            "--init-scripts",
+            str(empty_init),
         ],
         cwd=PROJECT_ROOT,
         env=env,

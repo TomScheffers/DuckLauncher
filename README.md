@@ -21,10 +21,10 @@ uv pip install -e .
 # Start PostgreSQL (optional helper script in repo)
 ./scripts/run-postgres.sh
 
-# Coordinator
+# Coordinator (auto-loads ./init.sql when present; see init.sql.example)
+cp init.sql.example init.sql   # first time only
 ducklauncher coordinator \
   --database-url postgresql://postgres:postgres@localhost:5432/ducklauncher \
-  --init-scripts init.sql \
   --port 8000
 
 # Worker
@@ -90,7 +90,7 @@ CLI flags override environment variables.
 | Flag / Variable | Service | Default | Description |
 |-----------------|---------|---------|-------------|
 | `--database-url` / `DATABASE_URL` | Coordinator | `postgresql://postgres:postgres@localhost:5432/ducklauncher` | PostgreSQL connection |
-| `--init-scripts` / `INIT_SCRIPTS_PATH` | Coordinator | — | SQL init file |
+| `--init-scripts` / `INIT_SCRIPTS_PATH` | Coordinator | `./init.sql` if present | SQL init file (gitignored; copy from `init.sql.example`). `${VAR}` placeholders are expanded from the coordinator environment. |
 | `--cpus` | Worker | auto-detect | CPUs advertised to coordinator |
 | `--memory` | Worker | auto-detect | Available memory in MB |
 | `--disk-space` | Worker | auto-detect | Available disk in MB |
@@ -99,6 +99,21 @@ CLI flags override environment variables.
 | `--duckdb-path` / `DUCKDB_PATH` | Worker | `:memory:` | DuckDB database path |
 | `--max-concurrent-queries` / `MAX_CONCURRENT_QUERIES` | Worker | `10` | Max parallel queries per worker |
 | `--connection-pool-size` / `CONNECTION_POOL_SIZE` | Worker | same as max | Warm DuckDB connections |
+
+### Init script environment
+
+`init.sql.example` shows a minimal Iceberg REST catalog attach. Copy it to `init.sql` and export variables on the **coordinator** host before starting:
+
+| Variable | Required | Default |
+|----------|----------|---------|
+| `ICEBERG_WAREHOUSE` | yes | — |
+| `ICEBERG_ENDPOINT` | yes | — |
+| `ICEBERG_CLIENT_ID` | yes | — |
+| `ICEBERG_CLIENT_SECRET` | yes | — |
+| `ICEBERG_REGION` | yes | — |
+| `ICEBERG_OAUTH_URI` | no | `{ICEBERG_ENDPOINT}/v1/oauth/tokens` |
+| `ICEBERG_OAUTH_SCOPE` | no | `PRINCIPAL_ROLE:ALL` |
+| `ICEBERG_ACCESS_MODE` | no | `vended_credentials` |
 
 ## Development
 

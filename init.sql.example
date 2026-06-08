@@ -1,0 +1,26 @@
+-- Copy to init.sql (gitignored). ${VAR} placeholders are expanded from the
+-- coordinator environment when workers register.
+--
+-- Required: ICEBERG_WAREHOUSE, ICEBERG_ENDPOINT, ICEBERG_CLIENT_ID,
+--           ICEBERG_CLIENT_SECRET, ICEBERG_REGION
+-- Optional: ICEBERG_OAUTH_URI (defaults to {ICEBERG_ENDPOINT}/v1/oauth/tokens),
+--           ICEBERG_OAUTH_SCOPE, ICEBERG_ACCESS_MODE
+
+INSTALL iceberg;
+LOAD iceberg;
+
+INSTALL httpfs;
+LOAD httpfs;
+
+SET preserve_insertion_order = false;
+
+ATTACH '${ICEBERG_WAREHOUSE}' AS iceberg_catalog (
+    TYPE iceberg,
+    ENDPOINT '${ICEBERG_ENDPOINT}',
+    CLIENT_ID '${ICEBERG_CLIENT_ID}',
+    CLIENT_SECRET '${ICEBERG_CLIENT_SECRET}',
+    OAUTH2_SERVER_URI '${ICEBERG_OAUTH_URI}',
+    OAUTH2_SCOPE '${ICEBERG_OAUTH_SCOPE:-PRINCIPAL_ROLE:ALL}',
+    DEFAULT_REGION '${ICEBERG_REGION}',
+    ACCESS_DELEGATION_MODE '${ICEBERG_ACCESS_MODE:-vended_credentials}'
+);
