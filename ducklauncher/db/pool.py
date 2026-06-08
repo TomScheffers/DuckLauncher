@@ -4,7 +4,7 @@ import asyncpg
 
 
 def _migrations_sql() -> str:
-    return resources.files("ducklauncher.utils").joinpath("migrations.sql").read_text()
+    return resources.files("ducklauncher.db").joinpath("migrations.sql").read_text()
 
 
 async def create_pool(database_url: str) -> asyncpg.Pool:

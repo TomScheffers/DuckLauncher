@@ -44,6 +44,40 @@ spec:
                 secretKeyRef:
                   name: {{ include "ducklauncher.database.secretName" . }}
                   key: {{ .Values.database.existingSecretKey }}
+            {{- if .Values.coordinator.publicBaseUrl }}
+            - name: PUBLIC_BASE_URL
+              value: {{ .Values.coordinator.publicBaseUrl | quote }}
+            {{- end }}
+            {{- if .Values.coordinator.oidc.issuerUrl }}
+            - name: OIDC_ISSUER_URL
+              value: {{ .Values.coordinator.oidc.issuerUrl | quote }}
+            {{- end }}
+            {{- if .Values.coordinator.oidc.clientId }}
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.coordinator.oidc.clientId | quote }}
+            {{- end }}
+            {{- if .Values.coordinator.oidc.redirectUri }}
+            - name: OIDC_REDIRECT_URI
+              value: {{ .Values.coordinator.oidc.redirectUri | quote }}
+            {{- end }}
+            {{- if .Values.coordinator.oidc.existingSecret }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.coordinator.oidc.existingSecret }}
+                  key: {{ .Values.coordinator.oidc.existingClientSecretKey }}
+            {{- end }}
+            {{- if .Values.coordinator.session.existingSecret }}
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.coordinator.session.existingSecret }}
+                  key: {{ .Values.coordinator.session.existingSecretKey }}
+            {{- end }}
+            {{- if .Values.coordinator.session.ttlHours }}
+            - name: SESSION_TTL_HOURS
+              value: {{ .Values.coordinator.session.ttlHours | quote }}
+            {{- end }}
           {{- if .Values.coordinator.initScripts }}
           volumeMounts:
             - name: init-scripts

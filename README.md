@@ -69,9 +69,20 @@ Query statuses: `pending`, `running`, `completed`, `failed`, `cancelled`.
 | `POST` | `/workers/{worker_id}/heartbeat` | Heartbeat |
 | `POST` | `/workers/{worker_id}/shutdown` | Mark worker as shutting down |
 | `POST` | `/queries` | Submit a query |
+| `GET` | `/queries/mine` | List query history for the signed-in user (empty when auth is off) |
 | `GET` | `/queries/{query_id}` | Query status |
+| `GET` | `/queries/{query_id}/events` | SSE query status stream |
+| `GET` | `/queries/{query_id}/result` | Paginated query result |
 | `POST` | `/queries/{query_id}/complete` | Worker completion callback |
 | `POST` | `/queries/{query_id}/cancel` | Cancel a pending or running query |
+| `GET` | `/sheets` | List saved SQL sheets (requires auth) |
+| `POST` | `/sheets` | Create a sheet |
+| `PATCH` | `/sheets/{sheet_id}` | Update a sheet |
+| `DELETE` | `/sheets/{sheet_id}` | Delete a sheet |
+| `GET` | `/auth/me` | Auth status |
+| `GET` | `/auth/login` | Start OIDC login |
+| `GET` | `/auth/callback` | OIDC callback |
+| `POST` | `/auth/logout` | End session |
 
 ### Worker
 
@@ -99,6 +110,24 @@ CLI flags override environment variables.
 | `--duckdb-path` / `DUCKDB_PATH` | Worker | `:memory:` | DuckDB database path |
 | `--max-concurrent-queries` / `MAX_CONCURRENT_QUERIES` | Worker | `10` | Max parallel queries per worker |
 | `--connection-pool-size` / `CONNECTION_POOL_SIZE` | Worker | same as max | Warm DuckDB connections |
+
+### Authentication (optional)
+
+When OIDC is **not** configured, DuckLauncher stays open: no login, queries run anonymously (`user_id` is NULL), and history/sheets APIs return empty lists.
+
+Set all of the following on the **coordinator** to enable login:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OIDC_ISSUER_URL` | yes | OIDC issuer URL (discovery document is fetched automatically) |
+| `OIDC_CLIENT_ID` | yes | OAuth client ID |
+| `OIDC_CLIENT_SECRET` | yes | OAuth client secret (server-side only) |
+| `SESSION_SECRET` | yes | Secret for OAuth state cookies |
+| `OIDC_REDIRECT_URI` | no | Defaults to `{PUBLIC_BASE_URL}/auth/callback` |
+| `PUBLIC_BASE_URL` | no | Public coordinator URL, default `http://127.0.0.1:8000` |
+| `SESSION_TTL_HOURS` | no | Session lifetime, default `168` (7 days) |
+
+Register the redirect URI with your IdP (for example `https://ducklauncher.example.com/auth/callback`). Worker registration and completion callbacks stay unauthenticated.
 
 ### Init script environment
 

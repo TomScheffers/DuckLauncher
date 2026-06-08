@@ -138,8 +138,44 @@
       overflow: auto;
       background: var(--panel);
     }
-    .workers-panel { flex: 0 0 auto; max-height: 220px; }
-    .explorer-panel { flex: 1; }
+    .workers-panel { flex: 0 0 auto; max-height: 180px; }
+    .history-panel, .sheets-panel { flex: 0 0 auto; max-height: 160px; }
+    .explorer-panel { flex: 1; min-height: 120px; }
+    .header-actions { display: flex; align-items: center; gap: 10px; }
+    .list-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+    }
+    .list-item:hover { background: var(--tree-hover); }
+    .list-item:last-child { border-bottom: none; }
+    .list-item .meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .list-item .label {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: ui-monospace, monospace;
+    }
+    .list-item .actions { display: flex; gap: 4px; }
+    .list-item .actions button {
+      padding: 2px 6px;
+      font-size: 11px;
+    }
+    .panel-toolbar {
+      display: flex;
+      gap: 6px;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    .panel-toolbar button { font-size: 11px; padding: 4px 8px; }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -282,7 +318,12 @@
 <body>
   <header>
     <h1>🦆 DuckLauncher</h1>
-    <span id="clock" class="status"></span>
+    <div class="header-actions">
+      <span id="auth-info" class="status" hidden></span>
+      <button id="login-btn" class="secondary" hidden>Login</button>
+      <button id="logout-btn" class="secondary" hidden>Logout</button>
+      <span id="clock" class="status"></span>
+    </div>
   </header>
 
   <div class="workspace">
@@ -303,6 +344,26 @@
             </thead>
             <tbody id="workers-body"></tbody>
           </table>
+        </div>
+      </section>
+
+      <section class="panel history-panel" id="history-panel" hidden>
+        <div class="panel-header">Query History</div>
+        <div class="panel-body">
+          <div id="history-empty" class="empty">No queries yet.</div>
+          <div id="history-list" hidden></div>
+        </div>
+      </section>
+
+      <section class="panel sheets-panel" id="sheets-panel" hidden>
+        <div class="panel-header">Sheets</div>
+        <div class="panel-toolbar">
+          <button id="new-sheet-btn" class="secondary">New</button>
+          <button id="save-sheet-btn" class="secondary">Save</button>
+        </div>
+        <div class="panel-body">
+          <div id="sheets-empty" class="empty">No sheets saved.</div>
+          <div id="sheets-list" hidden></div>
         </div>
       </section>
 
@@ -448,6 +509,8 @@
     let resultTotal = 0;
     let queryEventSource = null;
     let queryRunning = false;
+    let authState = { auth_enabled: false, authenticated: false, user: null };
+    let currentSheetId = null;
     const expandedNodes = new Set();
 
     function setRunButtonMode(mode) {
@@ -485,8 +548,8 @@
       return parts.join(".");
     }
 
-    async function api(path, options) {
-      const response = await fetch(path, options);
+    async function api(path, options = {}) {
+      const response = await fetch(path, { credentials: "include", ...options });
       if (!response.ok) {
         const text = await response.text();
         throw new Error(text || response.statusText);
@@ -622,6 +685,149 @@
       }
     }
 
+    function truncateSql(sql, max = 48) {
+      const oneLine = sql.replace(/\s+/g, " ").trim();
+      return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
+    }
+
+    function formatWhen(iso) {
+      if (!iso) return "";
+      return new Date(iso).toLocaleString();
+    }
+
+    function updateAuthUi() {
+      const loginBtn = document.getElementById("login-btn");
+      const logoutBtn = document.getElementById("logout-btn");
+      const authInfo = document.getElementById("auth-info");
+      const historyPanel = document.getElementById("history-panel");
+      const sheetsPanel = document.getElementById("sheets-panel");
+
+      if (!authState.auth_enabled) {
+        loginBtn.hidden = true;
+        logoutBtn.hidden = true;
+        authInfo.hidden = true;
+        historyPanel.hidden = true;
+        sheetsPanel.hidden = true;
+        return;
+      }
+
+      if (authState.authenticated) {
+        const label = authState.user?.name || authState.user?.email || "Signed in";
+        authInfo.textContent = label;
+        authInfo.hidden = false;
+        loginBtn.hidden = true;
+        logoutBtn.hidden = false;
+        historyPanel.hidden = false;
+        sheetsPanel.hidden = false;
+      } else {
+        authInfo.hidden = true;
+        loginBtn.hidden = false;
+        logoutBtn.hidden = true;
+        historyPanel.hidden = true;
+        sheetsPanel.hidden = true;
+      }
+    }
+
+    async function refreshAuth() {
+      authState = await api("/auth/me");
+      updateAuthUi();
+      if (authState.authenticated) {
+        await Promise.all([refreshHistory(), refreshSheets()]);
+      }
+    }
+
+    async function refreshHistory() {
+      const list = document.getElementById("history-list");
+      const empty = document.getElementById("history-empty");
+      list.innerHTML = "";
+      const queries = await api("/queries/mine?limit=50");
+      if (!queries.length) {
+        list.hidden = true;
+        empty.hidden = false;
+        return;
+      }
+      empty.hidden = true;
+      list.hidden = false;
+      for (const query of queries) {
+        const item = document.createElement("div");
+        item.className = "list-item";
+        item.innerHTML = `
+          <span class="label" title="${query.query.replace(/"/g, "&quot;")}">${truncateSql(query.query)}</span>
+          <span class="meta">${query.status}</span>
+        `;
+        item.addEventListener("click", () => {
+          document.getElementById("query-input").value = query.query;
+          if (query.status === "completed" && query.result_row_count != null) {
+            currentQueryId = query.query_id;
+            resultOffset = 0;
+            resultTotal = query.result_row_count;
+            setQueryStatus(query.status, query.status);
+            loadResultPage().catch((err) => setQueryStatus(err.message, "failed"));
+          }
+        });
+        list.appendChild(item);
+      }
+    }
+
+    async function refreshSheets() {
+      const list = document.getElementById("sheets-list");
+      const empty = document.getElementById("sheets-empty");
+      list.innerHTML = "";
+      const sheets = await api("/sheets");
+      if (!sheets.length) {
+        list.hidden = true;
+        empty.hidden = false;
+        return;
+      }
+      empty.hidden = true;
+      list.hidden = false;
+      for (const sheet of sheets) {
+        const item = document.createElement("div");
+        item.className = "list-item";
+        item.innerHTML = `
+          <span class="label" title="${sheet.name}">${sheet.name}</span>
+          <span class="actions">
+            <button class="secondary" data-action="load">Open</button>
+            <button class="secondary" data-action="delete">Del</button>
+          </span>
+        `;
+        item.querySelector('[data-action="load"]').addEventListener("click", (event) => {
+          event.stopPropagation();
+          currentSheetId = sheet.sheet_id;
+          document.getElementById("query-input").value = sheet.sql;
+        });
+        item.querySelector('[data-action="delete"]').addEventListener("click", async (event) => {
+          event.stopPropagation();
+          await api(`/sheets/${sheet.sheet_id}`, { method: "DELETE" });
+          if (currentSheetId === sheet.sheet_id) currentSheetId = null;
+          await refreshSheets();
+        });
+        list.appendChild(item);
+      }
+    }
+
+    async function saveCurrentSheet() {
+      const sql = document.getElementById("query-input").value;
+      const defaultName = truncateSql(sql, 32) || "Untitled";
+      if (currentSheetId) {
+        await api(`/sheets/${currentSheetId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sql }),
+        });
+      } else {
+        const name = prompt("Sheet name", defaultName);
+        if (!name) return;
+        const created = await api("/sheets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, sql }),
+        });
+        currentSheetId = created.sheet_id;
+      }
+      await refreshSheets();
+    }
+
     function insertText(text) {
       const editor = document.getElementById("query-input");
       const start = editor.selectionStart;
@@ -753,6 +959,9 @@
       setQueryStatus(created.status, created.status);
       setRunButtonMode("cancel");
       watchQuery(currentQueryId);
+      if (authState.authenticated) {
+        refreshHistory().catch(() => {});
+      }
     }
 
     async function cancelQuery() {
@@ -787,11 +996,32 @@
       loadResultPage().catch((err) => setQueryStatus(err.message, "failed"));
     });
 
+    document.getElementById("login-btn").addEventListener("click", () => {
+      window.location.href = "/auth/login";
+    });
+
+    document.getElementById("logout-btn").addEventListener("click", () => {
+      api("/auth/logout", { method: "POST" })
+        .then(() => refreshAuth())
+        .catch(() => {});
+    });
+
+    document.getElementById("new-sheet-btn").addEventListener("click", () => {
+      currentSheetId = null;
+      document.getElementById("query-input").value = "";
+      document.getElementById("query-input").focus();
+    });
+
+    document.getElementById("save-sheet-btn").addEventListener("click", () => {
+      saveCurrentSheet().catch((err) => setQueryStatus(err.message, "failed"));
+    });
+
     setInterval(() => {
       document.getElementById("clock").textContent = new Date().toLocaleTimeString();
       refreshWorkers().catch(() => {});
     }, 2000);
 
+    refreshAuth().catch(() => {});
     refreshWorkers().catch(() => {});
     refreshCatalog().catch(() => {});
     setInterval(() => refreshCatalog().catch(() => {}), 10000);

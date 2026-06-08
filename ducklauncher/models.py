@@ -57,6 +57,7 @@ class CancelQueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     query_id: UUID
     worker_id: UUID | None = None
+    user_id: UUID | None = None
     status: str
     query: str
     error: str | None = None
@@ -67,6 +68,36 @@ class QueryResponse(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     result_row_count: int | None = None
+
+
+class UserResponse(BaseModel):
+    user_id: UUID
+    email: str | None = None
+    name: str | None = None
+
+
+class AuthMeResponse(BaseModel):
+    auth_enabled: bool
+    authenticated: bool
+    user: UserResponse | None = None
+
+
+class SheetResponse(BaseModel):
+    sheet_id: UUID
+    name: str
+    sql: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class CreateSheetRequest(BaseModel):
+    name: str
+    sql: str
+
+
+class UpdateSheetRequest(BaseModel):
+    name: str | None = None
+    sql: str | None = None
 
 
 class WorkerResponse(BaseModel):

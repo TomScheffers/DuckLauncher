@@ -19,6 +19,28 @@ class CoordinatorSettings(BaseSettings):
     worker_stale_sec: int = 30
     scheduler_interval_sec: float = 0.1
     dispatch_timeout_sec: float = 5.0
+    oidc_issuer_url: str | None = None
+    oidc_client_id: str | None = None
+    oidc_client_secret: str | None = None
+    oidc_redirect_uri: str | None = None
+    session_secret: str | None = None
+    session_ttl_hours: int = 168
+    public_base_url: str = "http://127.0.0.1:8000"
+
+    @property
+    def auth_enabled(self) -> bool:
+        return bool(
+            self.oidc_issuer_url
+            and self.oidc_client_id
+            and self.oidc_client_secret
+            and self.session_secret
+        )
+
+    @property
+    def resolved_oidc_redirect_uri(self) -> str:
+        if self.oidc_redirect_uri:
+            return self.oidc_redirect_uri
+        return f"{self.public_base_url.rstrip('/')}/auth/callback"
 
 
 class WorkerSettings(BaseSettings):

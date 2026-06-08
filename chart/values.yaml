@@ -29,6 +29,20 @@ coordinator:
   heartbeatIntervalSec: 10
   workerStaleSec: 30
   schedulerIntervalSec: 0.1
+  publicBaseUrl: ""
+  # Optional OIDC login (all four required to enable auth).
+  oidc:
+    issuerUrl: ""
+    clientId: ""
+    # Store client secret in an existing K8s secret, not in values.yaml.
+    existingSecret: ""
+    existingClientSecretKey: oidc-client-secret
+    redirectUri: ""
+  session:
+    # Store session secret in an existing K8s secret.
+    existingSecret: ""
+    existingSecretKey: session-secret
+    ttlHours: 168
   resources: {}
   nodeSelector: {}
   tolerations: []

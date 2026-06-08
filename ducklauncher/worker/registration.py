@@ -81,7 +81,6 @@ async def register_with_coordinator(
     client: httpx.AsyncClient,
     settings: WorkerSettings,
     state: WorkerState,
-    *,
     max_attempts: int = 30,
     retry_delay_sec: float = 0.5,
 ) -> list[str]:

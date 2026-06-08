@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ducklauncher.config import CoordinatorSettings
 from ducklauncher.coordinator.events import QueryEventHub, postgres_listen_loop
+from ducklauncher.coordinator.auth import configure_auth, router as auth_router
 from ducklauncher.coordinator.routes import router
 from ducklauncher.coordinator.scheduler import scheduler_loop
 from ducklauncher.db.pool import create_pool, run_migrations
@@ -44,6 +45,8 @@ def create_coordinator_app(settings: CoordinatorSettings | None = None) -> FastA
         await pool.close()
 
     app = FastAPI(lifespan=lifespan)
+    configure_auth(app, resolved_settings)
+    app.include_router(auth_router)
     app.include_router(router)
     static_dir = resources.files("ducklauncher") / "static"
     app.mount("/ui", StaticFiles(directory=str(static_dir), html=True), name="ui")

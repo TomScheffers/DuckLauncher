@@ -41,7 +41,7 @@ async def reset_tables(url: str) -> None:
     await init_database(url)
     conn = await asyncpg.connect(url)
     try:
-        await conn.execute("TRUNCATE queries, workers")
+        await conn.execute("TRUNCATE sheets, sessions, queries, workers, users")
     finally:
         await conn.close()
 

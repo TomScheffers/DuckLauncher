@@ -12,7 +12,6 @@ def _utcnow() -> datetime:
 
 async def register_worker(
     pool: asyncpg.Pool,
-    *,
     worker_id: UUID | None,
     endpoint: str,
     cpus: int,
@@ -122,32 +121,55 @@ async def shutdown_worker(pool: asyncpg.Pool, worker_id: UUID) -> bool:
 
 async def create_query(
     pool: asyncpg.Pool,
-    *,
     query: str,
     cpus: int | None,
     memory: int | None,
     disk_space: int | None,
+    user_id: UUID | None = None,
 ) -> UUID:
     async with pool.acquire() as conn:
         query_id = await conn.fetchval(
             """
-            INSERT INTO queries (query, cpus, memory, disk_space)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO queries (query, cpus, memory, disk_space, user_id)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING query_id
             """,
             query,
             cpus,
             memory,
             disk_space,
+            user_id,
         )
     return query_id
+
+
+async def list_queries_for_user(
+    pool: asyncpg.Pool,
+    user_id: UUID,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[asyncpg.Record]:
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            """
+            SELECT query_id, worker_id, user_id, status, query, error, cpus, memory, disk_space,
+                   created_at, started_at, completed_at, result_row_count
+            FROM queries
+            WHERE user_id = $1
+            ORDER BY created_at DESC
+            LIMIT $2 OFFSET $3
+            """,
+            user_id,
+            limit,
+            offset,
+        )
 
 
 async def get_query(pool: asyncpg.Pool, query_id: UUID) -> asyncpg.Record | None:
     async with pool.acquire() as conn:
         return await conn.fetchrow(
             """
-            SELECT query_id, worker_id, status, query, error, cpus, memory, disk_space,
+            SELECT query_id, worker_id, user_id, status, query, error, cpus, memory, disk_space,
                    created_at, started_at, completed_at, result_row_count
             FROM queries
             WHERE query_id = $1
@@ -266,7 +288,6 @@ _WORKER_FOR_QUERY_SQL = """
 async def _claim_query(
     conn: asyncpg.Connection,
     pending: asyncpg.Record,
-    *,
     stale_cutoff: datetime,
 ) -> asyncpg.Record | None:
     worker = await conn.fetchrow(
@@ -305,7 +326,6 @@ async def _claim_query(
 
 async def claim_pending_query(
     pool: asyncpg.Pool,
-    *,
     worker_stale_sec: int,
 ) -> asyncpg.Record | None:
     stale_cutoff = _utcnow() - timedelta(seconds=worker_stale_sec)
@@ -328,7 +348,6 @@ async def claim_pending_query(
 
 async def claim_query_by_id(
     pool: asyncpg.Pool,
-    *,
     query_id: UUID,
     worker_stale_sec: int,
 ) -> asyncpg.Record | None:
