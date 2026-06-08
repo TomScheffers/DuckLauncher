@@ -105,4 +105,11 @@ async def shutdown_worker_queries(app) -> None:
     try:
         await asyncio.wait_for(asyncio.gather(*running, return_exceptions=True), timeout=30)
     except asyncio.TimeoutError:
-        logger.warning("Timed out waiting for query cancellation")
+        logger.warning("Timed out waiting for query cancellation, abandoning in-flight tasks")
+        for task in running:
+            if not task.done():
+                task.cancel()
+        try:
+            await asyncio.wait_for(asyncio.gather(*running, return_exceptions=True), timeout=5)
+        except asyncio.TimeoutError:
+            logger.warning("In-flight queries did not stop; continuing shutdown")

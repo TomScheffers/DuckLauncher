@@ -45,7 +45,7 @@ def create_worker_app(settings: WorkerSettings | None = None) -> FastAPI:
 
         try:
             loop = asyncio.get_running_loop()
-            install_signal_handlers(state, loop)
+            install_signal_handlers(state, loop, getattr(app.state, "uvicorn_server", None))
 
             await asyncio.to_thread(executor.warm_pool)
             init_scripts = await register_with_coordinator(client, resolved_settings, state)
@@ -66,14 +66,14 @@ def create_worker_app(settings: WorkerSettings | None = None) -> FastAPI:
         if not state.shutting_down:
             state.shutting_down = True
             state.shutdown_event.set()
-        await notify_shutdown(client, resolved_settings, state)
-        await shutdown_worker_queries(app)
         if heartbeat_task is not None:
             heartbeat_task.cancel()
             try:
                 await heartbeat_task
             except asyncio.CancelledError:
                 pass
+        await notify_shutdown(client, resolved_settings, state)
+        await shutdown_worker_queries(app)
         executor.close()
         await client.aclose()
 

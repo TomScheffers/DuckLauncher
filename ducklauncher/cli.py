@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -111,4 +112,7 @@ def worker(
     logging.getLogger("ducklauncher").setLevel(logging.INFO)
     logging.getLogger("uvicorn.error").setLevel(logging.INFO)
     app = create_worker_app(settings)
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    config = uvicorn.Config(app, host=host, port=port, log_level="info")
+    server = uvicorn.Server(config)
+    app.state.uvicorn_server = server
+    asyncio.run(server.serve())

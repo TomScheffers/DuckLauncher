@@ -139,6 +139,14 @@ async def register_with_coordinator(
     raise last_error
 
 
+async def _wait_or_shutdown(state: WorkerState, seconds: float) -> bool:
+    try:
+        await asyncio.wait_for(state.shutdown_event.wait(), timeout=seconds)
+        return True
+    except asyncio.TimeoutError:
+        return False
+
+
 async def heartbeat_loop(
     client: httpx.AsyncClient,
     settings: WorkerSettings,
@@ -146,7 +154,8 @@ async def heartbeat_loop(
 ) -> None:
     while not state.shutdown_event.is_set():
         if state.worker_id is None:
-            await asyncio.sleep(settings.heartbeat_interval_sec)
+            if await _wait_or_shutdown(state, settings.heartbeat_interval_sec):
+                break
             continue
         try:
             metrics = await collect_metrics()
@@ -164,25 +173,37 @@ async def heartbeat_loop(
             )
         except httpx.HTTPError:
             logger.warning("Heartbeat failed")
-        await asyncio.sleep(settings.heartbeat_interval_sec)
+        if await _wait_or_shutdown(state, settings.heartbeat_interval_sec):
+            break
 
 
 async def notify_shutdown(client: httpx.AsyncClient, settings: WorkerSettings, state: WorkerState) -> None:
     if state.worker_id is None:
         return
     try:
-        await client.post(f"{settings.coordinator_url}/workers/{state.worker_id}/shutdown")
-    except httpx.HTTPError:
+        await asyncio.wait_for(
+            client.post(f"{settings.coordinator_url}/workers/{state.worker_id}/shutdown"),
+            timeout=5.0,
+        )
+    except (httpx.HTTPError, asyncio.TimeoutError):
         logger.warning("Failed to notify coordinator of shutdown")
 
 
-def install_signal_handlers(state: WorkerState, loop: asyncio.AbstractEventLoop) -> None:
-    def handle_sigterm() -> None:
+def install_signal_handlers(
+    state: WorkerState,
+    loop: asyncio.AbstractEventLoop,
+    server: object | None = None,
+) -> None:
+    def handle_shutdown() -> None:
         if state.shutting_down:
-            return
-        logger.info("Received SIGTERM, initiating graceful shutdown")
+            logger.warning("Forced shutdown")
+            os._exit(1)
+        logger.info("Received shutdown signal, initiating graceful shutdown")
         state.shutting_down = True
         state.shutdown_event.set()
+        should_exit = getattr(server, "should_exit", None)
+        if should_exit is not None:
+            server.should_exit = True
 
     for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, handle_sigterm)
+        loop.add_signal_handler(sig, handle_shutdown)
