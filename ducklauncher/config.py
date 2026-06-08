@@ -1,6 +1,9 @@
 from pathlib import Path
+from uuid import UUID, uuid4
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+WORKER_DATA_ROOT = Path("/tmp/ducklauncher/workers")
 
 
 class CoordinatorSettings(BaseSettings):
@@ -29,6 +32,36 @@ class WorkerSettings(BaseSettings):
     cpus: int | None = None
     memory: int | None = None
     disk_space: int | None = None
+    result_dir: Path = Path("/tmp/ducklauncher/results")
+
+
+def default_worker_id_path(port: int) -> Path:
+    return Path.home() / ".ducklauncher" / "workers" / str(port) / "worker_id"
+
+
+def resolve_local_worker_id(settings: WorkerSettings) -> UUID:
+    if settings.worker_id:
+        return UUID(settings.worker_id)
+    if settings.worker_id_path.exists():
+        return UUID(settings.worker_id_path.read_text().strip())
+    return uuid4()
+
+
+def resolve_worker_storage(settings: WorkerSettings, worker_id: UUID) -> tuple[str, Path]:
+    worker_dir = WORKER_DATA_ROOT / str(worker_id)
+    worker_dir.mkdir(parents=True, exist_ok=True)
+
+    if settings.duckdb_path == ":memory:":
+        duckdb_path = ":memory:"
+    else:
+        duckdb_path = str(worker_dir / Path(settings.duckdb_path).name)
+
+    if settings.result_dir == Path("/tmp/ducklauncher/results"):
+        result_dir = worker_dir / "results"
+    else:
+        result_dir = settings.result_dir / str(worker_id)
+    result_dir.mkdir(parents=True, exist_ok=True)
+    return duckdb_path, result_dir
 
 
 def worker_connection_pool_size(settings: WorkerSettings) -> int:

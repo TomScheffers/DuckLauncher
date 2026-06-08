@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS workers (
     memory int NOT NULL, -- amount of memory available in MB
     disk_space int NOT NULL, -- amount of disk space available in MB
     max_concurrent_queries int NOT NULL DEFAULT 10,
+    memory_used_mb int,
+    cpu_usage double precision,
     started_at timestamptz NOT NULL DEFAULT now(),
     last_heartbeat_at timestamptz NOT NULL DEFAULT now()
 );
@@ -24,8 +26,13 @@ CREATE TABLE IF NOT EXISTS queries (
     disk_space int, -- amount of disk space requested in MB
     created_at timestamptz NOT NULL DEFAULT now(),
     started_at timestamptz,
-    completed_at timestamptz
+    completed_at timestamptz,
+    result_row_count bigint
 );
+
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS memory_used_mb int;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS cpu_usage double precision;
+ALTER TABLE queries ADD COLUMN IF NOT EXISTS result_row_count bigint;
 
 CREATE INDEX IF NOT EXISTS idx_queries_pending ON queries (created_at) WHERE status = 'pending';
 

@@ -39,6 +39,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["ducklauncher"]
+force-include = { "ducklauncher/static" = "ducklauncher/static" }
 
 [tool.hatch.build.targets.sdist]
 include = [

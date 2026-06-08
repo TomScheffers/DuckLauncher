@@ -11,10 +11,12 @@ from ducklauncher.db import queries as db
 from ducklauncher.models import (
     CompleteQueryRequest,
     QueryResponse,
+    QueryResultPage,
     SubmitQueryRequest,
     WorkerHeartbeatRequest,
     WorkerRegisterRequest,
     WorkerRegisterResponse,
+    WorkerResponse,
 )
 
 router = APIRouter()
@@ -33,6 +35,24 @@ def _query_response(row: asyncpg.Record) -> QueryResponse:
         created_at=row["created_at"],
         started_at=row["started_at"],
         completed_at=row["completed_at"],
+        result_row_count=row["result_row_count"],
+    )
+
+
+def _worker_response(row: asyncpg.Record) -> WorkerResponse:
+    return WorkerResponse(
+        worker_id=row["worker_id"],
+        endpoint=row["endpoint"],
+        status=row["status"],
+        cpus=row["cpus"],
+        memory=row["memory"],
+        disk_space=row["disk_space"],
+        max_concurrent_queries=row["max_concurrent_queries"],
+        running_queries=row["running_queries"],
+        memory_used_mb=row["memory_used_mb"],
+        cpu_usage=row["cpu_usage"],
+        started_at=row["started_at"],
+        last_heartbeat_at=row["last_heartbeat_at"],
     )
 
 
@@ -62,6 +82,13 @@ async def register_worker(request: Request, body: WorkerRegisterRequest) -> Work
     return response
 
 
+@router.get("/workers", response_model=list[WorkerResponse])
+async def list_workers(request: Request) -> list[WorkerResponse]:
+    pool: asyncpg.Pool = request.app.state.pool
+    rows = await db.list_workers(pool)
+    return [_worker_response(row) for row in rows]
+
+
 @router.post("/workers/{worker_id}/heartbeat")
 async def heartbeat_worker(request: Request, worker_id: UUID, body: WorkerHeartbeatRequest) -> dict[str, str]:
     pool: asyncpg.Pool = request.app.state.pool
@@ -72,6 +99,8 @@ async def heartbeat_worker(request: Request, worker_id: UUID, body: WorkerHeartb
         memory=body.memory,
         disk_space=body.disk_space,
         status=body.status,
+        memory_used_mb=body.memory_used_mb,
+        cpu_usage=body.cpu_usage,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Worker not found")
@@ -121,10 +150,48 @@ async def get_query(request: Request, query_id: UUID) -> QueryResponse:
     return _query_response(row)
 
 
+@router.get("/queries/{query_id}/result", response_model=QueryResultPage)
+async def get_query_result(
+    request: Request,
+    query_id: UUID,
+    offset: int = 0,
+    limit: int = 100,
+) -> QueryResultPage:
+    pool: asyncpg.Pool = request.app.state.pool
+    settings: CoordinatorSettings = request.app.state.settings
+    http_client: httpx.AsyncClient = request.app.state.http_client
+    row = await db.get_query(pool, query_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Query not found")
+    if row["status"] != "completed":
+        raise HTTPException(status_code=409, detail="Query is not completed")
+    if row["result_row_count"] is None:
+        raise HTTPException(status_code=404, detail="Query has no result data")
+    worker = await _get_worker_endpoint(pool, row["worker_id"])
+    if worker is None:
+        raise HTTPException(status_code=502, detail="Worker not available")
+    endpoint = worker["endpoint"].rstrip("/")
+    try:
+        response = await http_client.get(
+            f"{endpoint}/results/{query_id}",
+            params={"offset": offset, "limit": limit},
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch result from worker: {exc}") from exc
+    return QueryResultPage.model_validate(response.json())
+
+
 @router.post("/queries/{query_id}/complete")
 async def complete_query(request: Request, query_id: UUID, body: CompleteQueryRequest) -> dict[str, str]:
     pool: asyncpg.Pool = request.app.state.pool
-    updated = await db.complete_query(pool, query_id, status=body.status, error=body.error)
+    updated = await db.complete_query(
+        pool,
+        query_id,
+        status=body.status,
+        error=body.error,
+        result_row_count=body.result_row_count,
+    )
     if not updated:
         raise HTTPException(status_code=404, detail="Query not found or not active")
     trigger_schedule(request.app)

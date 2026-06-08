@@ -1,9 +1,11 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from importlib import resources
 
 import httpx
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from ducklauncher.config import CoordinatorSettings
 from ducklauncher.coordinator.routes import router
@@ -38,4 +40,6 @@ def create_coordinator_app(settings: CoordinatorSettings | None = None) -> FastA
 
     app = FastAPI(lifespan=lifespan)
     app.include_router(router)
+    static_dir = resources.files("ducklauncher") / "static"
+    app.mount("/ui", StaticFiles(directory=str(static_dir), html=True), name="ui")
     return app

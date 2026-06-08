@@ -48,11 +48,12 @@ async def register_worker(
 async def heartbeat_worker(
     pool: asyncpg.Pool,
     worker_id: UUID,
-    *,
     cpus: int | None = None,
     memory: int | None = None,
     disk_space: int | None = None,
     status: str | None = None,
+    memory_used_mb: int | None = None,
+    cpu_usage: float | None = None,
 ) -> bool:
     async with pool.acquire() as conn:
         result = await conn.execute(
@@ -62,7 +63,9 @@ async def heartbeat_worker(
                 cpus = COALESCE($2, cpus),
                 memory = COALESCE($3, memory),
                 disk_space = COALESCE($4, disk_space),
-                status = COALESCE($5, status)
+                status = COALESCE($5, status),
+                memory_used_mb = COALESCE($6, memory_used_mb),
+                cpu_usage = COALESCE($7, cpu_usage)
             WHERE worker_id = $1
             """,
             worker_id,
@@ -70,8 +73,36 @@ async def heartbeat_worker(
             memory,
             disk_space,
             status,
+            memory_used_mb,
+            cpu_usage,
         )
     return result.endswith("1")
+
+
+async def list_workers(pool: asyncpg.Pool) -> list[asyncpg.Record]:
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            """
+            SELECT
+                w.worker_id,
+                w.endpoint,
+                w.status,
+                w.cpus,
+                w.memory,
+                w.disk_space,
+                w.max_concurrent_queries,
+                w.memory_used_mb,
+                w.cpu_usage,
+                w.started_at,
+                w.last_heartbeat_at,
+                COUNT(q.query_id) FILTER (WHERE q.status = 'running') AS running_queries
+            FROM workers w
+            LEFT JOIN queries q ON q.worker_id = w.worker_id
+            WHERE w.status IN ('running', 'shutting_down')
+            GROUP BY w.worker_id
+            ORDER BY w.started_at
+            """
+        )
 
 
 async def shutdown_worker(pool: asyncpg.Pool, worker_id: UUID) -> bool:
@@ -115,7 +146,7 @@ async def get_query(pool: asyncpg.Pool, query_id: UUID) -> asyncpg.Record | None
         return await conn.fetchrow(
             """
             SELECT query_id, worker_id, status, query, error, cpus, memory, disk_space,
-                   created_at, started_at, completed_at
+                   created_at, started_at, completed_at, result_row_count
             FROM queries
             WHERE query_id = $1
             """,
@@ -126,9 +157,9 @@ async def get_query(pool: asyncpg.Pool, query_id: UUID) -> asyncpg.Record | None
 async def complete_query(
     pool: asyncpg.Pool,
     query_id: UUID,
-    *,
     status: str,
     error: str | None = None,
+    result_row_count: int | None = None,
 ) -> bool:
     async with pool.acquire() as conn:
         result = await conn.execute(
@@ -136,12 +167,14 @@ async def complete_query(
             UPDATE queries
             SET status = $2,
                 error = COALESCE($3, error),
+                result_row_count = COALESCE($4, result_row_count),
                 completed_at = COALESCE(completed_at, now())
             WHERE query_id = $1 AND status IN ('running', 'pending')
             """,
             query_id,
             status,
             error,
+            result_row_count,
         )
         if result.endswith("1"):
             return True

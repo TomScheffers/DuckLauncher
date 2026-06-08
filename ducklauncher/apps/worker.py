@@ -5,7 +5,12 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI
 
-from ducklauncher.config import WorkerSettings, worker_connection_pool_size
+from ducklauncher.config import (
+    WorkerSettings,
+    resolve_local_worker_id,
+    resolve_worker_storage,
+    worker_connection_pool_size,
+)
 from ducklauncher.worker.duckdb import DuckDBExecutor
 from ducklauncher.worker.registration import (
     WorkerState,
@@ -24,16 +29,20 @@ def create_worker_app(settings: WorkerSettings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        state = WorkerState()
+        state.worker_id = resolve_local_worker_id(resolved_settings)
+        duckdb_path, result_dir = resolve_worker_storage(resolved_settings, state.worker_id)
+        pool_size = worker_connection_pool_size(resolved_settings)
         logger.info(
-            "Starting worker: endpoint=%s coordinator=%s duckdb=%s max_concurrent_queries=%s",
+            "Starting worker %s: endpoint=%s coordinator=%s duckdb=%s result_dir=%s max_concurrent_queries=%s",
+            state.worker_id,
             resolved_settings.worker_endpoint,
             resolved_settings.coordinator_url,
-            resolved_settings.duckdb_path,
+            duckdb_path,
+            result_dir,
             resolved_settings.max_concurrent_queries,
         )
-        state = WorkerState()
-        pool_size = worker_connection_pool_size(resolved_settings)
-        executor = DuckDBExecutor(resolved_settings.duckdb_path, pool_size=pool_size)
+        executor = DuckDBExecutor(duckdb_path, pool_size, result_dir)
         client = httpx.AsyncClient(timeout=30.0)
         heartbeat_task: asyncio.Task | None = None
 
@@ -53,7 +62,9 @@ def create_worker_app(settings: WorkerSettings | None = None) -> FastAPI:
                 logger.info("Running %d init script(s)", len(init_scripts))
                 await asyncio.to_thread(executor.run_init_scripts, init_scripts)
 
-            heartbeat_task = asyncio.create_task(heartbeat_loop(client, resolved_settings, state))
+            heartbeat_task = asyncio.create_task(
+                heartbeat_loop(client, resolved_settings, state, executor)
+            )
             logger.info("Worker %s ready at %s", state.worker_id, resolved_settings.worker_endpoint)
         except Exception:
             logger.exception("Worker startup failed")

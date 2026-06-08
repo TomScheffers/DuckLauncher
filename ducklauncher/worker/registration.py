@@ -7,7 +7,7 @@ import httpx
 import os
 import sys
 
-from ducklauncher.config import WorkerSettings
+from ducklauncher.config import WorkerSettings, resolve_local_worker_id
 from ducklauncher.models import Metrics, WorkerHeartbeatRequest, WorkerRegisterRequest
 
 logger = logging.getLogger(__name__)
@@ -18,15 +18,6 @@ class WorkerState:
         self.worker_id: UUID | None = None
         self.shutting_down = False
         self.shutdown_event = asyncio.Event()
-
-
-async def load_or_create_worker_id(settings: WorkerSettings) -> UUID | None:
-    if settings.worker_id:
-        return UUID(settings.worker_id)
-    path = settings.worker_id_path
-    if path.exists():
-        return UUID(path.read_text().strip())
-    return None
 
 
 def persist_worker_id(settings: WorkerSettings, worker_id: UUID) -> None:
@@ -54,7 +45,12 @@ async def collect_metrics() -> Metrics:
         if sys.platform != "darwin":
             raise
 
-    load_avg_1min = os.getloadavg()[0] if hasattr(os, "getloadavg") else 0.0
+    load_avg_1min = 0.0
+    if hasattr(os, "getloadavg"):
+        try:
+            load_avg_1min = os.getloadavg()[0]
+        except OSError:
+            pass
     cpu_count = os.cpu_count() or 1
     cpu_usage = min(100.0, (load_avg_1min / cpu_count) * 100)
 
@@ -91,7 +87,7 @@ async def register_with_coordinator(
 ) -> list[str]:
     metrics = await collect_metrics()
     cpus, memory, disk_space = worker_resources(settings, metrics)
-    existing_id = await load_or_create_worker_id(settings)
+    existing_id = resolve_local_worker_id(settings)
     payload = WorkerRegisterRequest(
         worker_id=existing_id,
         endpoint=settings.worker_endpoint,
@@ -151,6 +147,7 @@ async def heartbeat_loop(
     client: httpx.AsyncClient,
     settings: WorkerSettings,
     state: WorkerState,
+    executor=None,
 ) -> None:
     while not state.shutdown_event.is_set():
         if state.worker_id is None:
@@ -166,6 +163,9 @@ async def heartbeat_loop(
                 memory=memory,
                 disk_space=disk_space,
                 status=status,
+                memory_used_mb=metrics.memory_used_mb,
+                cpu_usage=metrics.cpu_usage,
+                running_queries=executor.active_count if executor is not None else None,
             )
             await client.post(
                 f"{settings.coordinator_url}/workers/{state.worker_id}/heartbeat",

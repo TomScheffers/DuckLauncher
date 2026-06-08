@@ -5,7 +5,13 @@ from uuid import UUID
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 
-from ducklauncher.models import CancelQueryRequest, CompleteQueryRequest, Metrics, RunQueryRequest
+from ducklauncher.models import (
+    CancelQueryRequest,
+    CompleteQueryRequest,
+    Metrics,
+    QueryResultPage,
+    RunQueryRequest,
+)
 from ducklauncher.worker.duckdb import DuckDBExecutor, QueryCancelledError
 from ducklauncher.worker.registration import collect_metrics
 
@@ -41,6 +47,32 @@ async def run_query(request: Request, body: RunQueryRequest) -> dict[str, str]:
     return {"status": "accepted", "query_id": str(body.query_id)}
 
 
+@router.get("/results/{query_id}", response_model=QueryResultPage)
+async def get_result(
+    request: Request,
+    query_id: UUID,
+    offset: int = 0,
+    limit: int = 100,
+) -> QueryResultPage:
+    if limit < 1 or limit > 1000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset must be non-negative")
+    executor: DuckDBExecutor = request.app.state.executor
+    try:
+        page = await asyncio.to_thread(executor.read_result_page, query_id, offset, limit)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return QueryResultPage(
+        query_id=query_id,
+        offset=offset,
+        limit=limit,
+        total_rows=page["total_rows"],
+        columns=page["columns"],
+        rows=page["rows"],
+    )
+
+
 @router.post("/query/cancel")
 async def cancel_query(request: Request, body: CancelQueryRequest | None = None) -> dict[str, str]:
     if body is None or body.query_id is None:
@@ -59,8 +91,15 @@ async def _execute_query(
     settings,
 ) -> None:
     try:
-        await asyncio.to_thread(executor.execute, body.query_id, body.query)
-        await _report_completion(app, body.query_id, "completed", None, settings)
+        result = await asyncio.to_thread(executor.execute, body.query_id, body.query)
+        await _report_completion(
+            app,
+            body.query_id,
+            "completed",
+            None,
+            settings,
+            result_row_count=result.result_row_count,
+        )
     except QueryCancelledError as exc:
         await _report_completion(app, body.query_id, "cancelled", str(exc), settings)
     except Exception as exc:
@@ -70,9 +109,16 @@ async def _execute_query(
         app.state.query_tasks.pop(body.query_id, None)
 
 
-async def _report_completion(app, query_id: UUID, status: str, error: str | None, settings) -> None:
+async def _report_completion(
+    app,
+    query_id: UUID,
+    status: str,
+    error: str | None,
+    settings,
+    result_row_count: int | None = None,
+) -> None:
     client: httpx.AsyncClient = app.state.http_client
-    payload = CompleteQueryRequest(status=status, error=error)
+    payload = CompleteQueryRequest(status=status, error=error, result_row_count=result_row_count)
     try:
         response = await client.post(
             f"{settings.coordinator_url}/queries/{query_id}/complete",

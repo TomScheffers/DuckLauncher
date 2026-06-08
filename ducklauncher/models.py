@@ -23,6 +23,9 @@ class WorkerHeartbeatRequest(BaseModel):
     memory: int | None = None
     disk_space: int | None = None
     status: str | None = None  # running or shutting_down
+    memory_used_mb: int | None = None
+    cpu_usage: float | None = None
+    running_queries: int | None = None
 
 
 class SubmitQueryRequest(BaseModel):
@@ -43,6 +46,7 @@ class RunQueryRequest(BaseModel):
 class CompleteQueryRequest(BaseModel):
     status: str = Field(pattern="^(completed|failed|cancelled)$")
     error: str | None = None
+    result_row_count: int | None = None
 
 
 class CancelQueryRequest(BaseModel):
@@ -62,6 +66,31 @@ class QueryResponse(BaseModel):
     created_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    result_row_count: int | None = None
+
+
+class WorkerResponse(BaseModel):
+    worker_id: UUID
+    endpoint: str
+    status: str
+    cpus: int
+    memory: int
+    disk_space: int
+    max_concurrent_queries: int
+    running_queries: int
+    memory_used_mb: int | None = None
+    cpu_usage: float | None = None
+    started_at: datetime
+    last_heartbeat_at: datetime
+
+
+class QueryResultPage(BaseModel):
+    query_id: UUID
+    offset: int
+    limit: int
+    total_rows: int
+    columns: list[str]
+    rows: list[list]
 
 
 class Metrics(BaseModel):

@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DuckLauncher</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦆</text></svg>">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --border: #2d3a4f;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #3d8bfd;
+      --ok: #3dd68c;
+      --warn: #f5a524;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    h1 { margin: 0; font-size: 18px; font-weight: 600; }
+    main {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 16px;
+      padding: 16px 24px 24px;
+      max-width: 1400px;
+    }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      text-align: left;
+      padding: 8px 6px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-weight: 500; }
+    tr:last-child td { border-bottom: none; }
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      resize: vertical;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      font: 13px/1.4 ui-monospace, monospace;
+    }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font: inherit;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+    .status {
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 18px;
+    }
+    .status.running { color: var(--warn); }
+    .status.completed { color: var(--ok); }
+    .status.failed, .status.cancelled { color: #f87171; }
+    .empty { color: var(--muted); font-size: 13px; }
+    .pager { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+    .pager button { background: var(--panel); border: 1px solid var(--border); color: var(--text); }
+    .result-wrap { overflow: auto; max-height: 360px; margin-top: 10px; }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🦆 DuckLauncher</h1>
+    <span id="clock" class="status"></span>
+  </header>
+  <main>
+    <section>
+      <h2>Workers</h2>
+      <div id="workers-empty" class="empty">No workers registered.</div>
+      <table id="workers-table" hidden>
+        <thead>
+          <tr>
+            <th>Worker</th>
+            <th>Queries</th>
+            <th>Memory</th>
+            <th>CPU</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="workers-body"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Query</h2>
+      <textarea id="query-input" placeholder="SELECT 42 AS answer"></textarea>
+      <div class="row">
+        <button id="run-btn">Run query</button>
+        <span id="query-status" class="status"></span>
+      </div>
+      <div id="result-meta" class="status" style="margin-top: 10px;"></div>
+      <div class="result-wrap">
+        <table id="result-table" hidden>
+          <thead id="result-head"></thead>
+          <tbody id="result-body"></tbody>
+        </table>
+      </div>
+      <div class="pager" id="pager" hidden>
+        <button id="prev-page">Prev</button>
+        <span id="page-info" class="status"></span>
+        <button id="next-page">Next</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const PAGE_SIZE = 50;
+    let currentQueryId = null;
+    let resultOffset = 0;
+    let resultTotal = 0;
+    let pollTimer = null;
+
+    function fmtPct(value) {
+      if (value == null) return "—";
+      return `${Math.round(value)}%`;
+    }
+
+    function fmtMemory(used, total) {
+      if (used == null) return `${total} MB avail`;
+      return `${used} / ${total} MB`;
+    }
+
+    function shortId(id) {
+      return id ? id.slice(0, 8) : "—";
+    }
+
+    async function api(path, options) {
+      const response = await fetch(path, options);
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || response.statusText);
+      }
+      if (response.status === 204) return null;
+      return response.json();
+    }
+
+    async function refreshWorkers() {
+      const workers = await api("/workers");
+      const table = document.getElementById("workers-table");
+      const empty = document.getElementById("workers-empty");
+      const body = document.getElementById("workers-body");
+      body.innerHTML = "";
+
+      if (!workers.length) {
+        table.hidden = true;
+        empty.hidden = false;
+        return;
+      }
+
+      empty.hidden = true;
+      table.hidden = false;
+      for (const worker of workers) {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td title="${worker.endpoint}">${shortId(worker.worker_id)}</td>
+          <td>${worker.running_queries} / ${worker.max_concurrent_queries}</td>
+          <td>${fmtMemory(worker.memory_used_mb, worker.memory)}</td>
+          <td>${fmtPct(worker.cpu_usage)}</td>
+          <td>${worker.status}</td>
+        `;
+        body.appendChild(row);
+      }
+    }
+
+    function setQueryStatus(text, statusClass) {
+      const el = document.getElementById("query-status");
+      el.textContent = text;
+      el.className = "status" + (statusClass ? ` ${statusClass}` : "");
+    }
+
+    async function pollQuery(queryId) {
+      const query = await api(`/queries/${queryId}`);
+      setQueryStatus(`${query.status}`, query.status);
+
+      if (query.status === "pending" || query.status === "running") {
+        pollTimer = setTimeout(() => pollQuery(queryId), 300);
+        return;
+      }
+
+      document.getElementById("run-btn").disabled = false;
+      if (query.status === "completed" && query.result_row_count != null) {
+        resultOffset = 0;
+        resultTotal = query.result_row_count;
+        await loadResultPage();
+      } else if (query.error) {
+        document.getElementById("result-meta").textContent = query.error;
+        hideResultTable();
+      } else {
+        document.getElementById("result-meta").textContent = "Query finished without result rows.";
+        hideResultTable();
+      }
+    }
+
+    function hideResultTable() {
+      document.getElementById("result-table").hidden = true;
+      document.getElementById("pager").hidden = true;
+    }
+
+    async function loadResultPage() {
+      if (!currentQueryId) return;
+      const page = await api(
+        `/queries/${currentQueryId}/result?offset=${resultOffset}&limit=${PAGE_SIZE}`
+      );
+      resultTotal = page.total_rows;
+
+      const head = document.getElementById("result-head");
+      const body = document.getElementById("result-body");
+      head.innerHTML = `<tr>${page.columns.map((c) => `<th>${c}</th>`).join("")}</tr>`;
+      body.innerHTML = page.rows
+        .map((row) => `<tr>${row.map((cell) => `<td>${cell ?? ""}</td>`).join("")}</tr>`)
+        .join("");
+
+      document.getElementById("result-table").hidden = false;
+      document.getElementById("result-meta").textContent = `${resultTotal} row(s)`;
+
+      const pager = document.getElementById("pager");
+      pager.hidden = resultTotal <= PAGE_SIZE;
+      document.getElementById("page-info").textContent =
+        `${resultOffset + 1}-${Math.min(resultOffset + PAGE_SIZE, resultTotal)} of ${resultTotal}`;
+      document.getElementById("prev-page").disabled = resultOffset === 0;
+      document.getElementById("next-page").disabled = resultOffset + PAGE_SIZE >= resultTotal;
+    }
+
+    async function runQuery() {
+      const sql = document.getElementById("query-input").value.trim();
+      if (!sql) return;
+
+      if (pollTimer) clearTimeout(pollTimer);
+      currentQueryId = null;
+      hideResultTable();
+      document.getElementById("result-meta").textContent = "";
+      document.getElementById("run-btn").disabled = true;
+      setQueryStatus("submitting");
+
+      const created = await api("/queries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: sql }),
+      });
+
+      currentQueryId = created.query_id;
+      setQueryStatus(`${created.status}`, created.status);
+      pollQuery(currentQueryId);
+    }
+
+    document.getElementById("run-btn").addEventListener("click", () => {
+      runQuery().catch((err) => {
+        document.getElementById("run-btn").disabled = false;
+        setQueryStatus(err.message || "Request failed", "failed");
+      });
+    });
+
+    document.getElementById("prev-page").addEventListener("click", () => {
+      resultOffset = Math.max(0, resultOffset - PAGE_SIZE);
+      loadResultPage().catch((err) => setQueryStatus(err.message, "failed"));
+    });
+
+    document.getElementById("next-page").addEventListener("click", () => {
+      resultOffset += PAGE_SIZE;
+      loadResultPage().catch((err) => setQueryStatus(err.message, "failed"));
+    });
+
+    setInterval(() => {
+      document.getElementById("clock").textContent = new Date().toLocaleTimeString();
+      refreshWorkers().catch(() => {});
+    }, 2000);
+
+    refreshWorkers().catch(() => {});
+  </script>
+</body>
+</html>

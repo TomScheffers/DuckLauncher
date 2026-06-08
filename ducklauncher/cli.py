@@ -11,7 +11,7 @@ import uvicorn
 from ducklauncher import __version__
 from ducklauncher.apps.coordinator import create_coordinator_app
 from ducklauncher.apps.worker import create_worker_app
-from ducklauncher.config import CoordinatorSettings, WorkerSettings
+from ducklauncher.config import CoordinatorSettings, WorkerSettings, default_worker_id_path
 
 logging.basicConfig(level=logging.INFO)
 
@@ -94,6 +94,7 @@ def worker(
 ) -> None:
     """Run a DuckLauncher worker."""
     resolved_endpoint = worker_endpoint or f"http://127.0.0.1:{port}"
+    resolved_worker_id_path = worker_id_path or default_worker_id_path(port)
     settings = _build_settings(
         WorkerSettings,
         cpus=cpus,
@@ -105,7 +106,7 @@ def worker(
         max_concurrent_queries=max_concurrent_queries,
         connection_pool_size=connection_pool_size,
         worker_id=worker_id,
-        worker_id_path=worker_id_path,
+        worker_id_path=resolved_worker_id_path,
         heartbeat_interval_sec=heartbeat_interval_sec,
         shutdown_cancel_queries=shutdown_cancel_queries,
     )
