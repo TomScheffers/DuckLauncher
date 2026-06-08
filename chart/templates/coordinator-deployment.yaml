@@ -1,0 +1,75 @@
+{{- if .Values.coordinator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ducklauncher.coordinator.serviceName" . }}
+  labels:
+    {{- include "ducklauncher.labels" . | nindent 4 }}
+    app.kubernetes.io/component: coordinator
+spec:
+  replicas: {{ .Values.coordinator.replicas }}
+  selector:
+    matchLabels:
+      {{- include "ducklauncher.coordinator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ducklauncher.coordinator.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "ducklauncher.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: coordinator
+          image: {{ include "ducklauncher.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["ducklauncher", "coordinator"]
+          args:
+            - --port={{ .Values.coordinator.port }}
+            - --heartbeat-interval-sec={{ .Values.coordinator.heartbeatIntervalSec }}
+            - --worker-stale-sec={{ .Values.coordinator.workerStaleSec }}
+            - --scheduler-interval-sec={{ .Values.coordinator.schedulerIntervalSec }}
+            {{- if .Values.coordinator.initScripts }}
+            - --init-scripts=/config/init.sql
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.coordinator.port }}
+              protocol: TCP
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ducklauncher.database.secretName" . }}
+                  key: {{ .Values.database.existingSecretKey }}
+          {{- if .Values.coordinator.initScripts }}
+          volumeMounts:
+            - name: init-scripts
+              mountPath: /config
+              readOnly: true
+          {{- end }}
+          {{- with .Values.coordinator.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if .Values.coordinator.initScripts }}
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: {{ include "ducklauncher.fullname" . }}-init-scripts
+      {{- end }}
+      {{- with .Values.coordinator.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.coordinator.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.coordinator.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

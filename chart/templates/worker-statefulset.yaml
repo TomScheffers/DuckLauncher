@@ -1,0 +1,107 @@
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "ducklauncher.worker.serviceName" . }}
+  labels:
+    {{- include "ducklauncher.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  serviceName: {{ include "ducklauncher.worker.serviceName" . }}
+  replicas: {{ .Values.worker.replicas }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "ducklauncher.worker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ducklauncher.worker.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "ducklauncher.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.worker.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: {{ include "ducklauncher.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["ducklauncher", "worker"]
+          args:
+            - --coordinator-url={{ include "ducklauncher.coordinator.url" . }}
+            - --port={{ .Values.worker.port }}
+            - --duckdb-path={{ .Values.worker.duckdbPath }}
+            - --max-concurrent-queries={{ .Values.worker.maxConcurrentQueries }}
+            - --heartbeat-interval-sec={{ .Values.worker.heartbeatIntervalSec }}
+            - --worker-id-path=/var/lib/ducklauncher/worker_id
+            {{- if .Values.worker.connectionPoolSize }}
+            - --connection-pool-size={{ .Values.worker.connectionPoolSize }}
+            {{- end }}
+            {{- if .Values.worker.cpus }}
+            - --cpus={{ .Values.worker.cpus }}
+            {{- end }}
+            {{- if .Values.worker.memory }}
+            - --memory={{ .Values.worker.memory }}
+            {{- end }}
+            {{- if .Values.worker.diskSpace }}
+            - --disk-space={{ .Values.worker.diskSpace }}
+            {{- end }}
+            {{- if not .Values.worker.shutdownCancelQueries }}
+            - --no-shutdown-cancel-queries
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.worker.port }}
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: WORKER_ENDPOINT
+              value: http://$(POD_NAME).{{ include "ducklauncher.worker.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.worker.port }}
+          volumeMounts:
+            - name: worker-state
+              mountPath: /var/lib/ducklauncher
+            - name: data
+              mountPath: /data
+          {{- with .Values.worker.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: worker-state
+          emptyDir: {}
+        {{- if not .Values.worker.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.worker.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml .Values.worker.persistence.accessModes | nindent 10 }}
+        {{- if .Values.worker.persistence.storageClass }}
+        storageClassName: {{ .Values.worker.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.worker.persistence.size }}
+  {{- end }}
+{{- end }}

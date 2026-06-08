@@ -1,0 +1,19 @@
+{{- if .Values.worker.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ducklauncher.worker.serviceName" . }}
+  labels:
+    {{- include "ducklauncher.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: {{ .Values.worker.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "ducklauncher.worker.selectorLabels" . | nindent 4 }}
+{{- end }}

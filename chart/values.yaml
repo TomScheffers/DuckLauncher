@@ -1,0 +1,77 @@
+image:
+  repository: ghcr.io/tomscheffers/ducklauncher
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+database:
+  # PostgreSQL connection URL for the coordinator (RDS recommended on EKS).
+  url: ""
+  # Use an existing secret instead of creating one from database.url.
+  existingSecret: ""
+  existingSecretKey: database-url
+
+coordinator:
+  enabled: true
+  replicas: 1
+  port: 8000
+  # Semicolon-separated SQL run on each worker at registration (optional).
+  initScripts: ""
+  heartbeatIntervalSec: 10
+  workerStaleSec: 30
+  schedulerIntervalSec: 0.1
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  service:
+    type: ClusterIP
+    port: 8000
+    annotations: {}
+
+worker:
+  enabled: true
+  replicas: 3
+  port: 8001
+  maxConcurrentQueries: 4
+  connectionPoolSize: null
+  # Advertised capacity (optional; omit to auto-detect from the pod).
+  cpus: null
+  memory: null
+  diskSpace: null
+  duckdbPath: /data/duck.db
+  shutdownCancelQueries: true
+  heartbeatIntervalSec: 10
+  terminationGracePeriodSeconds: 120
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  persistence:
+    enabled: true
+    size: 100Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: ducklauncher.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []

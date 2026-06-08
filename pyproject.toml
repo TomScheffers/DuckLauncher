@@ -1,0 +1,52 @@
+[project]
+name = "ducklauncher"
+version = "0.1.0"
+description = "Coordinator-worker system for scheduling DuckDB queries"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "TomScheffers" }]
+keywords = ["duckdb", "coordinator", "worker", "scheduler"]
+classifiers = []
+dependencies = [
+    "asyncpg>=0.31.0",
+    "click>=8.1.0",
+    "duckdb>=1.5.3",
+    "fastapi>=0.136.3",
+    "httpx>=0.28.1",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.8.1",
+    "uvicorn>=0.34.0",
+]
+
+[project.scripts]
+ducklauncher = "ducklauncher.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/TomScheffers/DuckLauncher"
+Repository = "https://github.com/TomScheffers/DuckLauncher"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "hatchling>=1.27.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ducklauncher"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/ducklauncher",
+    "/README.md",
+    "/LICENSE",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

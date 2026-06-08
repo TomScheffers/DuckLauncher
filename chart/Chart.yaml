@@ -1,0 +1,17 @@
+apiVersion: v2
+name: ducklauncher
+description: Coordinator-worker system for scheduling DuckDB queries
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - duckdb
+  - coordinator
+  - worker
+  - scheduler
+home: https://github.com/TomScheffers/DuckLauncher
+sources:
+  - https://github.com/TomScheffers/DuckLauncher
+maintainers:
+  - name: TomScheffers
+    url: https://github.com/TomScheffers

@@ -1,0 +1,27 @@
+DuckLauncher installed in namespace {{ .Release.Namespace }}.
+
+Coordinator API:
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else if contains "NodePort" .Values.coordinator.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "ducklauncher.coordinator.serviceName" . }})
+  export NODE_IP=$(kubectl get nodes -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.coordinator.service.type }}
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+  kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "ducklauncher.coordinator.serviceName" . }}
+{{- else }}
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "ducklauncher.coordinator.serviceName" . }} 8000:{{ .Values.coordinator.service.port }}
+  echo "Coordinator at http://127.0.0.1:8000"
+{{- end }}
+
+Submit a query:
+  curl -X POST http://127.0.0.1:8000/queries \
+    -H 'Content-Type: application/json' \
+    -d '{"query": "SELECT 1 AS value"}'
+
+Workers ({{ .Values.worker.replicas }} replicas):
+  Headless service: {{ include "ducklauncher.worker.serviceName" . }}
+  Per-pod endpoint: http://<pod-name>.{{ include "ducklauncher.worker.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.worker.port }}
