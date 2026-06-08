@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class DuckDBExecutor:
-    def __init__(self, database_path: str, *, pool_size: int) -> None:
+    def __init__(self, database_path: str, pool_size: int) -> None:
         self._database_path = database_path
         self._pool_size = pool_size
         self._admin_conn = duckdb.connect(database_path)
@@ -30,7 +30,7 @@ class DuckDBExecutor:
     def _acquire(self) -> duckdb.DuckDBPyConnection:
         return self._available.get()
 
-    def _release(self, conn: duckdb.DuckDBPyConnection, *, discard: bool = False) -> None:
+    def _release(self, conn: duckdb.DuckDBPyConnection, discard: bool = False) -> None:
         if discard:
             try:
                 conn.close()

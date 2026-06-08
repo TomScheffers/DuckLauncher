@@ -152,7 +152,7 @@ async def complete_query(
     return existing == status
 
 
-async def mark_query_cancelled(pool: asyncpg.Pool, query_id: UUID, *, error: str | None = None) -> asyncpg.Record | None:
+async def mark_query_cancelled(pool: asyncpg.Pool, query_id: UUID, error: str | None = None) -> asyncpg.Record | None:
     async with pool.acquire() as conn:
         return await conn.fetchrow(
             """
@@ -293,7 +293,7 @@ async def claim_query_by_id(
             return await _claim_query(conn, pending, stale_cutoff=stale_cutoff)
 
 
-async def sweep_stale_workers(pool: asyncpg.Pool, *, worker_stale_sec: int) -> None:
+async def sweep_stale_workers(pool: asyncpg.Pool, worker_stale_sec: int) -> None:
     stale_cutoff = _utcnow() - timedelta(seconds=worker_stale_sec)
     async with pool.acquire() as conn:
         async with conn.transaction():

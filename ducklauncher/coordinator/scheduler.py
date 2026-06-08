@@ -45,7 +45,6 @@ async def schedule_pending_queries(
     pool: asyncpg.Pool,
     settings: CoordinatorSettings,
     http_client: httpx.AsyncClient,
-    *,
     query_id=None,
     max_batch: int = 10,
 ) -> int:
@@ -69,7 +68,7 @@ async def schedule_pending_queries(
     return scheduled
 
 
-def trigger_schedule(app, *, query_id=None, max_batch: int = 10) -> None:
+def trigger_schedule(app, query_id=None, max_batch: int = 10) -> None:
     pool: asyncpg.Pool = app.state.pool
     settings: CoordinatorSettings = app.state.settings
     http_client: httpx.AsyncClient = app.state.http_client
