@@ -24,6 +24,7 @@ async def dispatch_query(
         "disk_space": claimed["disk_space"],
     }
     endpoint = claimed["endpoint"].rstrip("/")
+    worker_id = claimed["worker_id"]
     try:
         response = await http_client.post(f"{endpoint}/query", json=payload)
         if response.status_code != 202:
@@ -32,12 +33,15 @@ async def dispatch_query(
                 claimed["query_id"],
                 response.status_code,
             )
-            await db.revert_query_to_pending(pool, claimed["query_id"])
+            if response.status_code in (502, 503):
+                await db.mark_worker_unreachable(pool, worker_id)
+            else:
+                await db.revert_query_to_pending(pool, claimed["query_id"])
             return False
         return True
     except httpx.HTTPError:
         logger.warning("Failed to dispatch query %s to %s", claimed["query_id"], endpoint)
-        await db.revert_query_to_pending(pool, claimed["query_id"])
+        await db.mark_worker_unreachable(pool, worker_id)
         return False
 
 

@@ -54,7 +54,8 @@
       min-height: 0;
       display: flex;
       flex-direction: column;
-      overflow: hidden;
+      overflow-x: hidden;
+      overflow-y: auto;
     }
     #sidebar-resize {
       grid-column: 2;
@@ -118,7 +119,7 @@
     .panel {
       display: flex;
       flex-direction: column;
-      min-height: 0;
+      flex: 0 0 auto;
       border-bottom: 1px solid var(--border);
     }
     .panel:last-child { border-bottom: none; }
@@ -132,15 +133,63 @@
       border-bottom: 1px solid var(--border);
       background: var(--panel);
     }
+    .panel-header-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .icon-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      font-size: 16px;
+      line-height: 1;
+      border-radius: 4px;
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+    .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
     .panel-body {
-      flex: 1;
-      min-height: 0;
-      overflow: auto;
+      flex: 0 0 auto;
       background: var(--panel);
     }
-    .workers-panel { flex: 0 0 auto; max-height: 180px; }
-    .history-panel, .sheets-panel { flex: 0 0 auto; max-height: 160px; }
-    .explorer-panel { flex: 1; min-height: 120px; }
+    .history-item {
+      display: grid;
+      grid-template-columns: 10px 72px 56px minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      padding: 7px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+    }
+    .history-item:hover { background: var(--tree-hover); }
+    .history-item.active { background: var(--tree-hover); }
+    .history-item:last-child { border-bottom: none; }
+    .history-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex: 0 0 8px;
+    }
+    .history-dot.completed { background: var(--ok); }
+    .history-dot.failed, .history-dot.cancelled { background: #f87171; }
+    .history-dot.running, .history-dot.pending { background: var(--warn); }
+    .history-time { color: var(--muted); white-space: nowrap; }
+    .history-runtime { color: var(--muted); white-space: nowrap; text-align: right; }
+    .history-query {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      color: var(--text);
+    }
     .header-actions { display: flex; align-items: center; gap: 10px; }
     .list-item {
       display: flex;
@@ -153,6 +202,8 @@
       border-bottom: 1px solid var(--border);
     }
     .list-item:hover { background: var(--tree-hover); }
+    .list-item.active { background: var(--tree-hover); }
+    .list-item.open .label { color: var(--accent); }
     .list-item:last-child { border-bottom: none; }
     .list-item .meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
     .list-item .label {
@@ -164,18 +215,17 @@
       font-family: ui-monospace, monospace;
     }
     .list-item .actions { display: flex; gap: 4px; }
-    .list-item .actions button {
-      padding: 2px 6px;
-      font-size: 11px;
+    .list-item .delete-btn {
+      padding: 0 4px;
+      font-size: 14px;
+      line-height: 1;
+      opacity: 0;
+      background: transparent;
+      border: none;
+      color: var(--muted);
     }
-    .panel-toolbar {
-      display: flex;
-      gap: 6px;
-      padding: 6px 10px;
-      border-bottom: 1px solid var(--border);
-      background: var(--panel);
-    }
-    .panel-toolbar button { font-size: 11px; padding: 4px 8px; }
+    .list-item:hover .delete-btn { opacity: 1; }
+    .list-item .delete-btn:hover { color: #f87171; }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -218,6 +268,47 @@
     }
     .chevron.empty { visibility: hidden; }
     .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sheet-tabs {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 2px;
+      padding: 6px 8px 0;
+      overflow-x: auto;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+    }
+    .sheet-tabs:empty { display: none; }
+    .sheet-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: 6px 6px 0 0;
+      background: var(--bg);
+      color: var(--muted);
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      max-width: 180px;
+      flex: 0 0 auto;
+    }
+    .sheet-tab.active {
+      background: var(--panel);
+      color: var(--text);
+    }
+    .sheet-tab .tab-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sheet-tab .tab-close {
+      opacity: 0.6;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .sheet-tab .tab-close:hover { opacity: 1; color: #f87171; }
     .editor-toolbar {
       flex: 0 0 auto;
       display: flex;
@@ -234,18 +325,45 @@
       background: var(--panel);
       overflow: hidden;
     }
-    #query-input {
+    .sql-editor {
       flex: 1;
-      width: 100%;
       min-height: 0;
-      resize: none;
-      border: none;
-      outline: none;
+      position: relative;
+      overflow: hidden;
       background: var(--bg);
-      color: var(--text);
-      padding: 12px;
-      font: 13px/1.45 ui-monospace, monospace;
     }
+    .sql-highlight,
+    #query-input {
+      position: absolute;
+      inset: 0;
+      margin: 0;
+      padding: 12px;
+      border: none;
+      font: 13px/1.45 ui-monospace, monospace;
+      line-height: 1.45;
+      tab-size: 2;
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow: auto;
+    }
+    .sql-highlight {
+      pointer-events: none;
+      color: var(--text);
+    }
+    .sql-highlight code { display: block; min-height: 100%; }
+    #query-input {
+      resize: none;
+      outline: none;
+      background: transparent;
+      color: transparent;
+      caret-color: var(--text);
+      z-index: 1;
+    }
+    #query-input::placeholder { color: var(--muted); }
+    .hl-keyword { color: #7eb6ff; }
+    .hl-string { color: var(--ok); }
+    .hl-comment { color: var(--muted); font-style: italic; }
+    .hl-number { color: var(--warn); }
     .results-panel {
       min-height: 0;
       display: flex;
@@ -347,31 +465,30 @@
         </div>
       </section>
 
-      <section class="panel history-panel" id="history-panel" hidden>
-        <div class="panel-header">Query History</div>
+      <section class="panel explorer-panel">
+        <div class="panel-header">Explorer</div>
         <div class="panel-body">
-          <div id="history-empty" class="empty">No queries yet.</div>
-          <div id="history-list" hidden></div>
+          <div id="catalog-empty" class="empty">No catalog available.</div>
+          <ul id="catalog-tree" class="tree" hidden></ul>
         </div>
       </section>
 
-      <section class="panel sheets-panel" id="sheets-panel" hidden>
-        <div class="panel-header">Sheets</div>
-        <div class="panel-toolbar">
-          <button id="new-sheet-btn" class="secondary">New</button>
-          <button id="save-sheet-btn" class="secondary">Save</button>
+      <section class="panel sheets-panel" id="sheets-panel">
+        <div class="panel-header panel-header-actions">
+          <span>Sheets</span>
+          <button id="new-sheet-btn" class="icon-btn" type="button" title="New sheet">+</button>
         </div>
         <div class="panel-body">
-          <div id="sheets-empty" class="empty">No sheets saved.</div>
+          <div id="sheets-empty" class="empty">No sheets yet.</div>
           <div id="sheets-list" hidden></div>
         </div>
       </section>
 
-      <section class="panel explorer-panel">
-        <div class="panel-header">Database Explorer</div>
+      <section class="panel history-panel" id="history-panel">
+        <div class="panel-header">History</div>
         <div class="panel-body">
-          <div id="catalog-empty" class="empty">No catalog available.</div>
-          <ul id="catalog-tree" class="tree" hidden></ul>
+          <div id="history-empty" class="empty">No queries yet.</div>
+          <div id="history-list" hidden></div>
         </div>
       </section>
     </aside>
@@ -380,11 +497,15 @@
 
     <section class="editor-pane">
       <div class="editor-area">
+        <div class="sheet-tabs" id="sheet-tabs"></div>
         <div class="editor-toolbar">
           <button id="run-btn">Run</button>
           <span id="query-status" class="status"></span>
         </div>
-        <textarea id="query-input" placeholder="SELECT 42 AS answer" spellcheck="false"></textarea>
+        <div class="sql-editor">
+          <pre class="sql-highlight" aria-hidden="true"><code id="sql-highlight-code"></code></pre>
+          <textarea id="query-input" placeholder="SELECT 42 AS answer" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
+        </div>
       </div>
 
       <div class="resize-handle resize-h" id="results-resize" aria-hidden="true"></div>
@@ -415,6 +536,125 @@
     const RESULTS_HEIGHT_KEY = "ducklauncher-results-height";
 
     const editorPane = document.querySelector(".editor-pane");
+    const queryInput = document.getElementById("query-input");
+    const sqlHighlightCode = document.getElementById("sql-highlight-code");
+    const sqlHighlightPre = document.querySelector(".sql-highlight");
+
+    const SQL_KEYWORDS = new Set([
+      "SELECT", "FROM", "WHERE", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER", "FULL", "CROSS", "ON",
+      "AND", "OR", "NOT", "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "OFFSET", "AS", "DISTINCT",
+      "UNION", "ALL", "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE", "CREATE", "DROP",
+      "ALTER", "TABLE", "INDEX", "VIEW", "WITH", "CASE", "WHEN", "THEN", "ELSE", "END", "NULL",
+      "IS", "IN", "EXISTS", "LIKE", "BETWEEN", "CAST", "COUNT", "SUM", "AVG", "MIN", "MAX",
+      "TRUE", "FALSE", "ASC", "DESC", "PRIMARY", "KEY", "FOREIGN", "REFERENCES", "DEFAULT",
+      "RETURNING", "OVER", "PARTITION", "WINDOW", "LATERAL", "NATURAL", "USING", "ILIKE",
+    ]);
+
+    function escapeHtml(text) {
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function highlightSql(sql) {
+      let html = "";
+      let i = 0;
+      while (i < sql.length) {
+        if (sql[i] === "-" && sql[i + 1] === "-") {
+          let end = sql.indexOf("\n", i);
+          if (end === -1) end = sql.length;
+          html += `<span class="hl-comment">${escapeHtml(sql.slice(i, end))}</span>`;
+          i = end;
+          continue;
+        }
+        if (sql[i] === "/" && sql[i + 1] === "*") {
+          const end = sql.indexOf("*/", i + 2);
+          const stop = end === -1 ? sql.length : end + 2;
+          html += `<span class="hl-comment">${escapeHtml(sql.slice(i, stop))}</span>`;
+          i = stop;
+          continue;
+        }
+        if (sql[i] === "'") {
+          let j = i + 1;
+          while (j < sql.length) {
+            if (sql[j] === "'" && sql[j + 1] === "'") {
+              j += 2;
+              continue;
+            }
+            if (sql[j] === "'") {
+              j += 1;
+              break;
+            }
+            j += 1;
+          }
+          html += `<span class="hl-string">${escapeHtml(sql.slice(i, j))}</span>`;
+          i = j;
+          continue;
+        }
+        if (sql[i] === '"') {
+          let j = i + 1;
+          while (j < sql.length && sql[j] !== '"') j += 1;
+          j += 1;
+          html += `<span class="hl-string">${escapeHtml(sql.slice(i, j))}</span>`;
+          i = j;
+          continue;
+        }
+        if (/[0-9]/.test(sql[i]) || (sql[i] === "." && /[0-9]/.test(sql[i + 1]))) {
+          let j = i;
+          while (j < sql.length && /[0-9._]/.test(sql[j])) j += 1;
+          html += `<span class="hl-number">${escapeHtml(sql.slice(i, j))}</span>`;
+          i = j;
+          continue;
+        }
+        if (/[a-zA-Z_]/.test(sql[i])) {
+          let j = i;
+          while (j < sql.length && /[a-zA-Z0-9_]/.test(sql[j])) j += 1;
+          const word = sql.slice(i, j);
+          if (SQL_KEYWORDS.has(word.toUpperCase())) {
+            html += `<span class="hl-keyword">${escapeHtml(word)}</span>`;
+          } else {
+            html += escapeHtml(word);
+          }
+          i = j;
+          continue;
+        }
+        html += escapeHtml(sql[i]);
+        i += 1;
+      }
+      return html;
+    }
+
+    function syncSqlScroll() {
+      sqlHighlightPre.scrollTop = queryInput.scrollTop;
+      sqlHighlightPre.scrollLeft = queryInput.scrollLeft;
+    }
+
+    function updateSqlHighlight() {
+      const text = queryInput.value;
+      sqlHighlightCode.innerHTML = highlightSql(text) + (text.endsWith("\n") ? "\n" : "");
+      syncSqlScroll();
+    }
+
+    function setQuerySql(sql) {
+      queryInput.value = sql;
+      updateSqlHighlight();
+      syncActiveOpenSheet();
+    }
+
+    function getQuerySql() {
+      return queryInput.value;
+    }
+
+    function getOpenSheet(sheetId) {
+      return openSheets.find((sheet) => sheet.id === sheetId);
+    }
+
+    function syncActiveOpenSheet() {
+      if (!activeSheetId) return;
+      const sheet = getOpenSheet(activeSheetId);
+      if (sheet) sheet.sql = getQuerySql();
+    }
 
     function loadPanelSizes() {
       const sidebar = localStorage.getItem(SIDEBAR_WIDTH_KEY);
@@ -509,8 +749,13 @@
     let resultTotal = 0;
     let queryEventSource = null;
     let queryRunning = false;
-    let authState = { auth_enabled: false, authenticated: false, user: null };
-    let currentSheetId = null;
+    let authState = { auth_enabled: false, authenticated: false, anonymous: true, user: null };
+    let openSheets = [];
+    let activeSheetId = null;
+    let currentHistoryQueryId = null;
+    let sheetSaveTimer = null;
+    const SHEET_SAVE_DELAY_MS = 600;
+    const resultsPanel = document.querySelector(".results-panel");
     const expandedNodes = new Set();
 
     function setRunButtonMode(mode) {
@@ -685,31 +930,10 @@
       }
     }
 
-    function truncateSql(sql, max = 48) {
-      const oneLine = sql.replace(/\s+/g, " ").trim();
-      return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
-    }
-
-    function formatWhen(iso) {
-      if (!iso) return "";
-      return new Date(iso).toLocaleString();
-    }
-
     function updateAuthUi() {
       const loginBtn = document.getElementById("login-btn");
       const logoutBtn = document.getElementById("logout-btn");
       const authInfo = document.getElementById("auth-info");
-      const historyPanel = document.getElementById("history-panel");
-      const sheetsPanel = document.getElementById("sheets-panel");
-
-      if (!authState.auth_enabled) {
-        loginBtn.hidden = true;
-        logoutBtn.hidden = true;
-        authInfo.hidden = true;
-        historyPanel.hidden = true;
-        sheetsPanel.hidden = true;
-        return;
-      }
 
       if (authState.authenticated) {
         const label = authState.user?.name || authState.user?.email || "Signed in";
@@ -717,23 +941,105 @@
         authInfo.hidden = false;
         loginBtn.hidden = true;
         logoutBtn.hidden = false;
-        historyPanel.hidden = false;
-        sheetsPanel.hidden = false;
       } else {
         authInfo.hidden = true;
-        loginBtn.hidden = false;
+        loginBtn.hidden = !authState.auth_enabled;
         logoutBtn.hidden = true;
-        historyPanel.hidden = true;
-        sheetsPanel.hidden = true;
       }
     }
 
     async function refreshAuth() {
       authState = await api("/auth/me");
       updateAuthUi();
-      if (authState.authenticated) {
-        await Promise.all([refreshHistory(), refreshSheets()]);
+      await Promise.all([refreshSheets(), refreshHistory()]);
+    }
+
+    function formatRelativeTime(iso) {
+      const diffMs = Date.now() - new Date(iso).getTime();
+      const sec = Math.max(0, Math.floor(diffMs / 1000));
+      if (sec < 60) return `${sec}s ago`;
+      const min = Math.floor(sec / 60);
+      if (min < 60) return min === 1 ? "1 minute ago" : `${min} minutes ago`;
+      const hours = Math.floor(min / 60);
+      if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+      const days = Math.floor(hours / 24);
+      return days === 1 ? "1 day ago" : `${days} days ago`;
+    }
+
+    function formatRuntime(query) {
+      if (!query.started_at) return "—";
+      if (query.status === "pending") return "pending";
+      if (query.status === "running") return "running";
+      if (!query.completed_at) return "—";
+      const ms = new Date(query.completed_at).getTime() - new Date(query.started_at).getTime();
+      if (ms < 1000) return `${ms}ms`;
+      if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+      const min = Math.floor(ms / 60000);
+      const sec = Math.floor((ms % 60000) / 1000);
+      return `${min}m ${sec}s`;
+    }
+
+    function querySnippet(sql, max = 64) {
+      const oneLine = sql.replace(/\s+/g, " ").trim();
+      return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
+    }
+
+    function highlightActiveHistory() {
+      document.querySelectorAll("#history-list .history-item").forEach((item) => {
+        item.classList.toggle(
+          "active",
+          currentHistoryQueryId != null && item.dataset.queryId === String(currentHistoryQueryId)
+        );
+      });
+    }
+
+    function showResultsPanel() {
+      resultsPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    async function openHistoryQuery(query) {
+      stopQueryEvents();
+      currentHistoryQueryId = query.query_id;
+      currentQueryId = query.query_id;
+      setQuerySql(query.query);
+      setQueryStatus(query.status, query.status);
+      highlightActiveHistory();
+      showResultsPanel();
+
+      if (query.status === "completed") {
+        setRunButtonMode("run");
+        if (query.result_row_count != null && query.result_row_count > 0) {
+          resultOffset = 0;
+          await loadResultPage();
+        } else {
+          hideResultTable();
+          document.getElementById("result-meta").textContent = "Query completed with no result rows.";
+          document.getElementById("result-empty").textContent = "Query completed with no result rows.";
+          document.getElementById("result-empty").hidden = false;
+        }
+        return;
       }
+
+      if (query.status === "running" || query.status === "pending") {
+        setRunButtonMode("cancel");
+        hideResultTable();
+        document.getElementById("result-meta").textContent = "";
+        document.getElementById("result-empty").textContent = "Query is still running...";
+        document.getElementById("result-empty").hidden = false;
+        watchQuery(query.query_id);
+        return;
+      }
+
+      setRunButtonMode("run");
+      hideResultTable();
+      if (query.error) {
+        document.getElementById("result-meta").textContent = query.error;
+        document.getElementById("result-empty").textContent = query.error;
+      } else {
+        document.getElementById("result-meta").textContent = `Query ${query.status}`;
+        document.getElementById("result-empty").textContent = `Query ${query.status}`;
+      }
+      document.getElementById("result-empty").hidden = false;
     }
 
     async function refreshHistory() {
@@ -741,32 +1047,172 @@
       const empty = document.getElementById("history-empty");
       list.innerHTML = "";
       const queries = await api("/queries/mine?limit=50");
-      if (!queries.length) {
+      const ran = queries.filter((q) =>
+        ["running", "completed", "failed", "cancelled"].includes(q.status)
+      );
+      if (!ran.length) {
         list.hidden = true;
         empty.hidden = false;
         return;
       }
       empty.hidden = true;
       list.hidden = false;
-      for (const query of queries) {
+      for (const query of ran) {
         const item = document.createElement("div");
-        item.className = "list-item";
+        item.className = "history-item";
+        item.dataset.queryId = query.query_id;
+        const when = query.completed_at || query.started_at || query.created_at;
         item.innerHTML = `
-          <span class="label" title="${query.query.replace(/"/g, "&quot;")}">${truncateSql(query.query)}</span>
-          <span class="meta">${query.status}</span>
+          <span class="history-dot ${query.status}" aria-hidden="true"></span>
+          <span class="history-time">${formatRelativeTime(when)}</span>
+          <span class="history-runtime">${formatRuntime(query)}</span>
+          <span class="history-query" title="${query.query.replace(/"/g, "&quot;")}">${querySnippet(query.query)}</span>
         `;
         item.addEventListener("click", () => {
-          document.getElementById("query-input").value = query.query;
-          if (query.status === "completed" && query.result_row_count != null) {
-            currentQueryId = query.query_id;
-            resultOffset = 0;
-            resultTotal = query.result_row_count;
-            setQueryStatus(query.status, query.status);
-            loadResultPage().catch((err) => setQueryStatus(err.message, "failed"));
-          }
+          openHistoryQuery(query).catch((err) => setQueryStatus(err.message, "failed"));
         });
         list.appendChild(item);
       }
+      highlightActiveHistory();
+    }
+
+    function renderSheetTabs() {
+      const bar = document.getElementById("sheet-tabs");
+      bar.innerHTML = "";
+      for (const sheet of openSheets) {
+        const tab = document.createElement("button");
+        tab.type = "button";
+        tab.className = "sheet-tab" + (sheet.id === activeSheetId ? " active" : "");
+        tab.innerHTML = `
+          <span class="tab-name" title="${escapeHtml(sheet.name)}">${escapeHtml(sheet.name)}</span>
+          <span class="tab-close" title="Close">×</span>
+        `;
+        tab.addEventListener("click", () => {
+          switchToSheet(sheet.id).catch((err) => setQueryStatus(err.message, "failed"));
+        });
+        tab.querySelector(".tab-close").addEventListener("click", (event) => {
+          event.stopPropagation();
+          closeSheet(sheet.id).catch((err) => setQueryStatus(err.message, "failed"));
+        });
+        tab.querySelector(".tab-name").addEventListener("dblclick", (event) => {
+          event.stopPropagation();
+          renameSheetById(sheet.id, sheet.name).catch((err) => setQueryStatus(err.message, "failed"));
+        });
+        bar.appendChild(tab);
+      }
+    }
+
+    function highlightActiveSheet() {
+      document.querySelectorAll("#sheets-list .list-item").forEach((item) => {
+        item.classList.toggle(
+          "active",
+          activeSheetId != null && item.dataset.sheetId === String(activeSheetId)
+        );
+        item.classList.toggle("open", openSheets.some((sheet) => sheet.id === item.dataset.sheetId));
+      });
+    }
+
+    function scheduleSheetSave() {
+      if (!activeSheetId) return;
+      clearTimeout(sheetSaveTimer);
+      sheetSaveTimer = setTimeout(() => {
+        autoSaveCurrentSheet().catch((err) => setQueryStatus(err.message, "failed"));
+      }, SHEET_SAVE_DELAY_MS);
+    }
+
+    async function flushSheetSave(sheetId) {
+      if (!sheetId) return;
+      clearTimeout(sheetSaveTimer);
+      sheetSaveTimer = null;
+      const sheet = getOpenSheet(sheetId);
+      if (!sheet) return;
+      if (sheetId === activeSheetId) syncActiveOpenSheet();
+      await api(`/sheets/${sheetId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sql: sheet.sql }),
+      });
+    }
+
+    async function autoSaveCurrentSheet() {
+      if (!activeSheetId) return;
+      syncActiveOpenSheet();
+      await flushSheetSave(activeSheetId);
+    }
+
+    async function renameSheetById(sheetId, currentName) {
+      const name = prompt("Rename sheet", currentName);
+      if (!name || !name.trim() || name.trim() === currentName) return;
+      const trimmed = name.trim();
+      await api(`/sheets/${sheetId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      const open = getOpenSheet(sheetId);
+      if (open) open.name = trimmed;
+      await refreshSheets();
+      renderSheetTabs();
+    }
+
+    async function switchToSheet(sheetId) {
+      if (activeSheetId === sheetId) return;
+      syncActiveOpenSheet();
+      if (activeSheetId) await flushSheetSave(activeSheetId);
+      activeSheetId = sheetId;
+      const sheet = getOpenSheet(sheetId);
+      queryInput.value = sheet ? sheet.sql : "";
+      updateSqlHighlight();
+      renderSheetTabs();
+      highlightActiveSheet();
+      queryInput.focus();
+    }
+
+    function openSheetFromSidebar(sheet) {
+      const existing = getOpenSheet(sheet.sheet_id);
+      if (!existing) {
+        openSheets.push({ id: sheet.sheet_id, name: sheet.name, sql: sheet.sql });
+      } else {
+        existing.name = sheet.name;
+      }
+      switchToSheet(sheet.sheet_id).catch((err) => setQueryStatus(err.message, "failed"));
+    }
+
+    async function closeSheet(sheetId) {
+      const index = openSheets.findIndex((sheet) => sheet.id === sheetId);
+      if (index === -1) return;
+      if (activeSheetId === sheetId) await flushSheetSave(sheetId);
+      openSheets.splice(index, 1);
+      if (activeSheetId === sheetId) {
+        if (openSheets.length) {
+          const next = openSheets[Math.min(index, openSheets.length - 1)];
+          activeSheetId = null;
+          await switchToSheet(next.id);
+        } else {
+          activeSheetId = null;
+          setQuerySql("");
+          renderSheetTabs();
+          highlightActiveSheet();
+        }
+      } else {
+        renderSheetTabs();
+        highlightActiveSheet();
+      }
+    }
+
+    async function createNewSheet() {
+      syncActiveOpenSheet();
+      if (activeSheetId) await flushSheetSave(activeSheetId);
+      const sheets = await api("/sheets");
+      const created = await api("/sheets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: `Sheet ${sheets.length + 1}`, sql: "" }),
+      });
+      openSheets.push({ id: created.sheet_id, name: created.name, sql: "" });
+      activeSheetId = null;
+      await switchToSheet(created.sheet_id);
+      await refreshSheets();
     }
 
     async function refreshSheets() {
@@ -774,6 +1220,11 @@
       const empty = document.getElementById("sheets-empty");
       list.innerHTML = "";
       const sheets = await api("/sheets");
+      for (const sheet of sheets) {
+        const open = getOpenSheet(sheet.sheet_id);
+        if (open) open.name = sheet.name;
+      }
+      renderSheetTabs();
       if (!sheets.length) {
         list.hidden = true;
         empty.hidden = false;
@@ -784,61 +1235,41 @@
       for (const sheet of sheets) {
         const item = document.createElement("div");
         item.className = "list-item";
+        item.dataset.sheetId = sheet.sheet_id;
+        if (openSheets.some((open) => open.id === sheet.sheet_id)) {
+          item.classList.add("open");
+        }
         item.innerHTML = `
-          <span class="label" title="${sheet.name}">${sheet.name}</span>
-          <span class="actions">
-            <button class="secondary" data-action="load">Open</button>
-            <button class="secondary" data-action="delete">Del</button>
-          </span>
+          <span class="label" title="${escapeHtml(sheet.name)}">${escapeHtml(sheet.name)}</span>
+          <button class="delete-btn" type="button" title="Delete sheet" aria-label="Delete sheet">×</button>
         `;
-        item.querySelector('[data-action="load"]').addEventListener("click", (event) => {
+        item.addEventListener("click", () => openSheetFromSidebar(sheet));
+        item.querySelector(".label").addEventListener("dblclick", (event) => {
           event.stopPropagation();
-          currentSheetId = sheet.sheet_id;
-          document.getElementById("query-input").value = sheet.sql;
+          renameSheetById(sheet.sheet_id, sheet.name).catch((err) => setQueryStatus(err.message, "failed"));
         });
-        item.querySelector('[data-action="delete"]').addEventListener("click", async (event) => {
+        item.querySelector(".delete-btn").addEventListener("click", async (event) => {
           event.stopPropagation();
           await api(`/sheets/${sheet.sheet_id}`, { method: "DELETE" });
-          if (currentSheetId === sheet.sheet_id) currentSheetId = null;
+          await closeSheet(sheet.sheet_id);
           await refreshSheets();
         });
         list.appendChild(item);
       }
-    }
-
-    async function saveCurrentSheet() {
-      const sql = document.getElementById("query-input").value;
-      const defaultName = truncateSql(sql, 32) || "Untitled";
-      if (currentSheetId) {
-        await api(`/sheets/${currentSheetId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sql }),
-        });
-      } else {
-        const name = prompt("Sheet name", defaultName);
-        if (!name) return;
-        const created = await api("/sheets", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, sql }),
-        });
-        currentSheetId = created.sheet_id;
-      }
-      await refreshSheets();
+      highlightActiveSheet();
     }
 
     function insertText(text) {
-      const editor = document.getElementById("query-input");
-      const start = editor.selectionStart;
-      const end = editor.selectionEnd;
-      const before = editor.value.slice(0, start);
-      const after = editor.value.slice(end);
-      editor.value = `${before}${text}${after}`;
+      const start = queryInput.selectionStart;
+      const end = queryInput.selectionEnd;
+      const before = queryInput.value.slice(0, start);
+      const after = queryInput.value.slice(end);
+      setQuerySql(`${before}${text}${after}`);
       const cursor = start + text.length;
-      editor.selectionStart = cursor;
-      editor.selectionEnd = cursor;
-      editor.focus();
+      queryInput.selectionStart = cursor;
+      queryInput.selectionEnd = cursor;
+      queryInput.focus();
+      scheduleSheetSave();
     }
 
     function setQueryStatus(text, statusClass) {
@@ -885,6 +1316,7 @@
       }
       stopQueryEvents();
       await finishQuery(query);
+      refreshHistory().catch(() => {});
     }
 
     function watchQuery(queryId) {
@@ -938,7 +1370,7 @@
     }
 
     async function runQuery() {
-      const sql = document.getElementById("query-input").value.trim();
+      const sql = getQuerySql().trim();
       if (!sql) return;
 
       stopQueryEvents();
@@ -956,12 +1388,11 @@
       });
 
       currentQueryId = created.query_id;
+      currentHistoryQueryId = created.query_id;
       setQueryStatus(created.status, created.status);
       setRunButtonMode("cancel");
       watchQuery(currentQueryId);
-      if (authState.authenticated) {
-        refreshHistory().catch(() => {});
-      }
+      refreshHistory().catch(() => {});
     }
 
     async function cancelQuery() {
@@ -979,7 +1410,13 @@
       });
     });
 
-    document.getElementById("query-input").addEventListener("keydown", (event) => {
+    queryInput.addEventListener("input", () => {
+      updateSqlHighlight();
+      syncActiveOpenSheet();
+      scheduleSheetSave();
+    });
+    queryInput.addEventListener("scroll", syncSqlScroll);
+    queryInput.addEventListener("keydown", (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         event.preventDefault();
         document.getElementById("run-btn").click();
@@ -1007,13 +1444,7 @@
     });
 
     document.getElementById("new-sheet-btn").addEventListener("click", () => {
-      currentSheetId = null;
-      document.getElementById("query-input").value = "";
-      document.getElementById("query-input").focus();
-    });
-
-    document.getElementById("save-sheet-btn").addEventListener("click", () => {
-      saveCurrentSheet().catch((err) => setQueryStatus(err.message, "failed"));
+      createNewSheet().catch((err) => setQueryStatus(err.message, "failed"));
     });
 
     setInterval(() => {
@@ -1021,6 +1452,7 @@
       refreshWorkers().catch(() => {});
     }, 2000);
 
+    updateSqlHighlight();
     refreshAuth().catch(() => {});
     refreshWorkers().catch(() => {});
     refreshCatalog().catch(() => {});

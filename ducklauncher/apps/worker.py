@@ -16,6 +16,7 @@ from ducklauncher.worker.registration import (
     WorkerState,
     heartbeat_loop,
     install_signal_handlers,
+    notify_ready,
     notify_shutdown,
     register_with_coordinator,
 )
@@ -62,6 +63,7 @@ def create_worker_app(settings: WorkerSettings | None = None) -> FastAPI:
                 logger.info("Running %d init script(s)", len(init_scripts))
                 await asyncio.to_thread(executor.run_init_scripts, init_scripts)
 
+            await notify_ready(client, resolved_settings, state)
             heartbeat_task = asyncio.create_task(
                 heartbeat_loop(client, resolved_settings, state, executor)
             )

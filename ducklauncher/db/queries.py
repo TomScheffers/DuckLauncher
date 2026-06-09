@@ -26,10 +26,10 @@ async def register_worker(
             INSERT INTO workers (
                 worker_id, endpoint, status, cpus, memory, disk_space, max_concurrent_queries
             )
-            VALUES ($1, $2, 'running', $3, $4, $5, $6)
+            VALUES ($1, $2, 'initializing', $3, $4, $5, $6)
             ON CONFLICT (worker_id) DO UPDATE SET
                 endpoint = EXCLUDED.endpoint,
-                status = 'running',
+                status = 'initializing',
                 cpus = EXCLUDED.cpus,
                 memory = EXCLUDED.memory,
                 disk_space = EXCLUDED.disk_space,
@@ -80,6 +80,20 @@ async def heartbeat_worker(
     return result.endswith("1")
 
 
+async def ready_worker(pool: asyncpg.Pool, worker_id: UUID) -> bool:
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            UPDATE workers
+            SET status = 'running',
+                last_heartbeat_at = now()
+            WHERE worker_id = $1 AND status = 'initializing'
+            """,
+            worker_id,
+        )
+    return result.endswith("1")
+
+
 async def list_workers(pool: asyncpg.Pool) -> list[asyncpg.Record]:
     async with pool.acquire() as conn:
         return await conn.fetch(
@@ -99,11 +113,58 @@ async def list_workers(pool: asyncpg.Pool) -> list[asyncpg.Record]:
                 COUNT(q.query_id) FILTER (WHERE q.status = 'running') AS running_queries
             FROM workers w
             LEFT JOIN queries q ON q.worker_id = w.worker_id
-            WHERE w.status IN ('running', 'shutting_down')
+            WHERE w.status IN ('running', 'shutting_down', 'unreachable', 'initializing')
             GROUP BY w.worker_id
             ORDER BY w.started_at
             """
         )
+
+
+async def get_running_worker(pool: asyncpg.Pool) -> asyncpg.Record | None:
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """
+            SELECT worker_id, endpoint
+            FROM workers
+            WHERE status = 'running'
+            ORDER BY last_heartbeat_at DESC
+            LIMIT 1
+            """
+        )
+
+
+async def mark_worker_unreachable(pool: asyncpg.Pool, worker_id: UUID) -> None:
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            updated = await conn.execute(
+                """
+                UPDATE workers
+                SET status = 'unreachable'
+                WHERE worker_id = $1 AND status IN ('running', 'shutting_down')
+                """,
+                worker_id,
+            )
+            if not updated.endswith("1"):
+                return
+            reverted = await conn.fetch(
+                """
+                UPDATE queries
+                SET status = 'pending',
+                    worker_id = NULL,
+                    started_at = NULL,
+                    error = 'Worker became unreachable'
+                WHERE worker_id = $1 AND status = 'running'
+                RETURNING query_id, error
+                """,
+                worker_id,
+            )
+            for row in reverted:
+                await notify_query_status(
+                    conn,
+                    row["query_id"],
+                    "pending",
+                    error=row["error"],
+                )
 
 
 async def shutdown_worker(pool: asyncpg.Pool, worker_id: UUID) -> bool:
@@ -376,7 +437,7 @@ async def sweep_stale_workers(pool: asyncpg.Pool, worker_stale_sec: int) -> None
                 """
                 UPDATE workers
                 SET status = 'stopped'
-                WHERE status IN ('running', 'shutting_down')
+                WHERE status IN ('running', 'shutting_down', 'unreachable')
                   AND last_heartbeat_at < $1
                 RETURNING worker_id
                 """,

@@ -1,6 +1,7 @@
 import asyncio
 import time
 
+import asyncpg
 import httpx
 import pytest
 
@@ -83,3 +84,67 @@ async def test_cancel_does_not_affect_other_running_queries(launcher_stack: dict
         response.raise_for_status()
         long_result = await wait_for_status(client, long_job["query_id"], "cancelled", timeout=30)
         assert long_result["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_catalog_empty_when_no_running_workers(
+    launcher_stack: dict[str, str],
+    db_url: str,
+) -> None:
+    conn = await asyncpg.connect(db_url)
+    try:
+        await conn.execute("UPDATE workers SET status = 'unreachable'")
+    finally:
+        await conn.close()
+
+    async with httpx.AsyncClient(base_url=launcher_stack["coordinator"], timeout=30) as client:
+        response = await client.get("/catalog")
+        response.raise_for_status()
+        assert response.json() == {"databases": []}
+
+
+@pytest.mark.asyncio
+async def test_catalog_empty_while_worker_initializing(
+    launcher_stack: dict[str, str],
+    db_url: str,
+) -> None:
+    conn = await asyncpg.connect(db_url)
+    try:
+        await conn.execute("UPDATE workers SET status = 'initializing'")
+    finally:
+        await conn.close()
+
+    async with httpx.AsyncClient(base_url=launcher_stack["coordinator"], timeout=30) as client:
+        response = await client.get("/catalog")
+        response.raise_for_status()
+        assert response.json() == {"databases": []}
+
+
+@pytest.mark.asyncio
+async def test_unreachable_worker_recovers_on_heartbeat(
+    launcher_stack: dict[str, str],
+    db_url: str,
+) -> None:
+    conn = await asyncpg.connect(db_url)
+    try:
+        worker_id = await conn.fetchval("SELECT worker_id FROM workers LIMIT 1")
+        await conn.execute(
+            "UPDATE workers SET status = 'unreachable' WHERE worker_id = $1",
+            worker_id,
+        )
+    finally:
+        await conn.close()
+
+    async with httpx.AsyncClient(base_url=launcher_stack["coordinator"], timeout=30) as client:
+        workers = await client.get("/workers")
+        workers.raise_for_status()
+        assert any(worker["status"] == "unreachable" for worker in workers.json())
+
+    await asyncio.sleep(2.5)
+
+    conn = await asyncpg.connect(db_url)
+    try:
+        status = await conn.fetchval("SELECT status FROM workers WHERE worker_id = $1", worker_id)
+        assert status == "running"
+    finally:
+        await conn.close()

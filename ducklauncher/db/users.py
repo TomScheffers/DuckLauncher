@@ -1,4 +1,4 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import asyncpg
 
@@ -23,6 +23,18 @@ async def upsert_user(
             sub,
             email,
             name,
+        )
+
+
+async def create_anonymous_user(pool: asyncpg.Pool) -> asyncpg.Record:
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """
+            INSERT INTO users (sub)
+            VALUES ($1)
+            RETURNING user_id, sub, email, name, created_at, last_login_at
+            """,
+            f"anon:{uuid4()}",
         )
 
 

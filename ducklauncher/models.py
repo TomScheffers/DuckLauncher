@@ -79,6 +79,7 @@ class UserResponse(BaseModel):
 class AuthMeResponse(BaseModel):
     auth_enabled: bool
     authenticated: bool
+    anonymous: bool = True
     user: UserResponse | None = None
 
 

@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS workers (
     worker_id uuid PRIMARY KEY,
     endpoint text NOT NULL,
-    status text NOT NULL DEFAULT 'running', -- running, error, stopped, shutting_down
+    status text NOT NULL DEFAULT 'running', -- initializing, running, unreachable, error, stopped, shutting_down
     cpus int NOT NULL,
     memory int NOT NULL, -- amount of memory available in MB
     disk_space int NOT NULL, -- amount of disk space available in MB

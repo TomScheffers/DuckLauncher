@@ -30,33 +30,66 @@ async def _create_test_session(db_url: str) -> tuple[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_open_mode_queries_mine_returns_empty(launcher_stack: dict[str, str]) -> None:
-    async with httpx.AsyncClient(base_url=launcher_stack["coordinator"], timeout=30) as client:
-        response = await client.get("/queries/mine")
-        response.raise_for_status()
-        assert response.json() == []
-
-
-@pytest.mark.asyncio
-async def test_open_mode_sheets_returns_empty(launcher_stack: dict[str, str]) -> None:
-    async with httpx.AsyncClient(base_url=launcher_stack["coordinator"], timeout=30) as client:
-        response = await client.get("/sheets")
-        response.raise_for_status()
-        assert response.json() == []
-
-
-@pytest.mark.asyncio
-async def test_auth_me_open_mode(launcher_stack: dict[str, str]) -> None:
+async def test_anonymous_session_created_on_first_request(launcher_stack: dict[str, str]) -> None:
     async with httpx.AsyncClient(base_url=launcher_stack["coordinator"], timeout=30) as client:
         response = await client.get("/auth/me")
         response.raise_for_status()
         payload = response.json()
         assert payload["auth_enabled"] is False
         assert payload["authenticated"] is False
+        assert payload["anonymous"] is True
+        assert "session_id" in response.cookies
 
 
 @pytest.mark.asyncio
-async def test_worker_complete_works_without_session(launcher_stack: dict[str, str]) -> None:
+async def test_anonymous_session_persists_sheets(launcher_stack: dict[str, str]) -> None:
+    async with httpx.AsyncClient(base_url=launcher_stack["coordinator"], timeout=30) as client:
+        await client.get("/auth/me")
+        created = await client.post(
+            "/sheets",
+            json={"name": "My sheet", "sql": "SELECT 1"},
+        )
+        created.raise_for_status()
+
+        listed = await client.get("/sheets")
+        listed.raise_for_status()
+        assert len(listed.json()) == 1
+        assert listed.json()[0]["name"] == "My sheet"
+
+
+@pytest.mark.asyncio
+async def test_anonymous_queries_mine_returns_empty_initially(launcher_stack: dict[str, str]) -> None:
+    async with httpx.AsyncClient(base_url=launcher_stack["coordinator"], timeout=30) as client:
+        await client.get("/auth/me")
+        response = await client.get("/queries/mine")
+        response.raise_for_status()
+        assert response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_anonymous_query_history_persists(launcher_stack: dict[str, str]) -> None:
+    async with httpx.AsyncClient(base_url=launcher_stack["coordinator"], timeout=30) as client:
+        await client.get("/auth/me")
+        created = await client.post("/queries", json={"query": "SELECT 42 AS value"})
+        created.raise_for_status()
+        query_id = created.json()["query_id"]
+
+        deadline = datetime.now(timezone.utc) + timedelta(seconds=30)
+        while datetime.now(timezone.utc) < deadline:
+            status = await client.get(f"/queries/{query_id}")
+            status.raise_for_status()
+            if status.json()["status"] == "completed":
+                break
+        else:
+            pytest.fail("query did not complete")
+
+        history = await client.get("/queries/mine")
+        history.raise_for_status()
+        assert any(item["query_id"] == query_id for item in history.json())
+
+
+@pytest.mark.asyncio
+async def test_worker_complete_works_without_explicit_session(launcher_stack: dict[str, str]) -> None:
     async with httpx.AsyncClient(base_url=launcher_stack["coordinator"], timeout=30) as client:
         created = await client.post("/queries", json={"query": "SELECT 1"})
         created.raise_for_status()
@@ -79,7 +112,7 @@ async def test_auth_mode_query_ownership(db_url: str, tmp_path) -> None:
     import time
     from pathlib import Path
 
-    from tests.conftest import free_port, terminate_process, wait_for_coordinator, wait_for_worker
+    from tests.conftest import free_port, terminate_process, wait_for_coordinator
 
     project_root = Path(__file__).resolve().parents[1]
     conn = await asyncpg.connect(db_url)
@@ -178,6 +211,7 @@ async def test_auth_mode_query_ownership(db_url: str, tmp_path) -> None:
             me = await client.get("/auth/me")
             me.raise_for_status()
             assert me.json()["authenticated"] is True
+            assert me.json()["anonymous"] is False
 
             history = await client.get("/queries/mine")
             history.raise_for_status()

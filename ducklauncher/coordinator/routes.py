@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from uuid import UUID
 
@@ -32,6 +33,8 @@ from ducklauncher.models import (
     WorkerRegisterResponse,
     WorkerResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -81,17 +84,11 @@ def _worker_response(row: asyncpg.Record) -> WorkerResponse:
     )
 
 
-def _assert_query_access(
-    row: asyncpg.Record,
-    user: asyncpg.Record | None,
-    settings: CoordinatorSettings,
-) -> None:
-    if not settings.auth_enabled:
-        return
+def _assert_query_access(row: asyncpg.Record, user: asyncpg.Record) -> None:
     query_user_id = row.get("user_id")
     if query_user_id is None:
         return
-    if user is None or query_user_id != user["user_id"]:
+    if query_user_id != user["user_id"]:
         raise HTTPException(status_code=403, detail="Not allowed to access this query")
 
 
@@ -117,8 +114,17 @@ async def register_worker(request: Request, body: WorkerRegisterRequest) -> Work
         worker_id=worker_id,
         init_scripts=load_init_scripts(settings.init_scripts_path),
     )
-    trigger_schedule(request.app)
     return response
+
+
+@router.post("/workers/{worker_id}/ready")
+async def ready_worker(request: Request, worker_id: UUID) -> dict[str, str]:
+    pool: asyncpg.Pool = request.app.state.pool
+    updated = await db.ready_worker(pool, worker_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Worker not found or not initializing")
+    trigger_schedule(request.app)
+    return {"status": "ok"}
 
 
 @router.get("/workers", response_model=list[WorkerResponse])
@@ -132,15 +138,21 @@ async def list_workers(request: Request) -> list[WorkerResponse]:
 async def get_catalog(request: Request) -> CatalogResponse:
     pool: asyncpg.Pool = request.app.state.pool
     http_client: httpx.AsyncClient = request.app.state.http_client
-    worker = await _get_first_worker(pool)
+    worker = await db.get_running_worker(pool)
     if worker is None:
-        raise HTTPException(status_code=404, detail="No workers available")
+        return CatalogResponse(databases=[])
     endpoint = worker["endpoint"].rstrip("/")
     try:
         response = await http_client.get(f"{endpoint}/catalog")
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch catalog from worker: {exc}") from exc
+        logger.warning(
+            "Failed to fetch catalog from worker %s at %s: %s",
+            worker["worker_id"],
+            endpoint,
+            exc,
+        )
+        return CatalogResponse(databases=[])
     return CatalogResponse.model_validate(response.json())
 
 
@@ -177,9 +189,6 @@ async def list_my_queries(
     limit: int = 50,
     offset: int = 0,
 ) -> list[QueryResponse]:
-    settings: CoordinatorSettings = request.app.state.settings
-    if not settings.auth_enabled:
-        return []
     user = await require_user(request)
     pool: asyncpg.Pool = request.app.state.pool
     rows = await db.list_queries_for_user(pool, user["user_id"], limit=limit, offset=offset)
@@ -192,9 +201,7 @@ async def submit_query(request: Request, body: SubmitQueryRequest) -> QueryRespo
     settings: CoordinatorSettings = request.app.state.settings
     http_client: httpx.AsyncClient = request.app.state.http_client
     user = await get_current_user(request)
-    if settings.auth_enabled and user is None:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    user_id = user["user_id"] if user is not None else None
+    user_id = user["user_id"]
     query_id = await db.create_query(
         pool,
         query=body.query,
@@ -219,12 +226,11 @@ async def submit_query(request: Request, body: SubmitQueryRequest) -> QueryRespo
 @router.get("/queries/{query_id}", response_model=QueryResponse)
 async def get_query(request: Request, query_id: UUID) -> QueryResponse:
     pool: asyncpg.Pool = request.app.state.pool
-    settings: CoordinatorSettings = request.app.state.settings
     user = await get_current_user(request)
     row = await db.get_query(pool, query_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Query not found")
-    _assert_query_access(row, user, settings)
+    _assert_query_access(row, user)
     return _query_response(row)
 
 
@@ -232,12 +238,11 @@ async def get_query(request: Request, query_id: UUID) -> QueryResponse:
 async def query_events(request: Request, query_id: UUID) -> StreamingResponse:
     pool: asyncpg.Pool = request.app.state.pool
     hub: QueryEventHub = request.app.state.event_hub
-    settings: CoordinatorSettings = request.app.state.settings
     user = await get_current_user(request)
     row = await db.get_query(pool, query_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Query not found")
-    _assert_query_access(row, user, settings)
+    _assert_query_access(row, user)
 
     async def event_stream() -> AsyncIterator[str]:
         queue = hub.subscribe(query_id)
@@ -285,7 +290,7 @@ async def get_query_result(
     row = await db.get_query(pool, query_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Query not found")
-    _assert_query_access(row, user, settings)
+    _assert_query_access(row, user)
     if row["status"] != "completed":
         raise HTTPException(status_code=409, detail="Query is not completed")
     if row["result_row_count"] is None:
@@ -329,7 +334,7 @@ async def cancel_query(request: Request, query_id: UUID) -> QueryResponse:
     row = await db.get_query(pool, query_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Query not found")
-    _assert_query_access(row, user, settings)
+    _assert_query_access(row, user)
     if row["status"] in ("completed", "failed", "cancelled"):
         return _query_response(row)
 
@@ -374,9 +379,6 @@ async def cancel_query(request: Request, query_id: UUID) -> QueryResponse:
 
 @router.get("/sheets", response_model=list[SheetResponse])
 async def list_sheets(request: Request) -> list[SheetResponse]:
-    settings: CoordinatorSettings = request.app.state.settings
-    if not settings.auth_enabled:
-        return []
     user = await require_user(request)
     pool: asyncpg.Pool = request.app.state.pool
     rows = await db_sheets.list_sheets(pool, user["user_id"])
@@ -385,9 +387,6 @@ async def list_sheets(request: Request) -> list[SheetResponse]:
 
 @router.post("/sheets", response_model=SheetResponse, status_code=201)
 async def create_sheet(request: Request, body: CreateSheetRequest) -> SheetResponse:
-    settings: CoordinatorSettings = request.app.state.settings
-    if not settings.auth_enabled:
-        raise HTTPException(status_code=404, detail="Sheets require authentication")
     user = await require_user(request)
     pool: asyncpg.Pool = request.app.state.pool
     row = await db_sheets.create_sheet(
@@ -401,9 +400,6 @@ async def create_sheet(request: Request, body: CreateSheetRequest) -> SheetRespo
 
 @router.patch("/sheets/{sheet_id}", response_model=SheetResponse)
 async def update_sheet(request: Request, sheet_id: UUID, body: UpdateSheetRequest) -> SheetResponse:
-    settings: CoordinatorSettings = request.app.state.settings
-    if not settings.auth_enabled:
-        raise HTTPException(status_code=404, detail="Sheets require authentication")
     user = await require_user(request)
     pool: asyncpg.Pool = request.app.state.pool
     row = await db_sheets.update_sheet(
@@ -420,9 +416,6 @@ async def update_sheet(request: Request, sheet_id: UUID, body: UpdateSheetReques
 
 @router.delete("/sheets/{sheet_id}")
 async def delete_sheet(request: Request, sheet_id: UUID) -> dict[str, str]:
-    settings: CoordinatorSettings = request.app.state.settings
-    if not settings.auth_enabled:
-        raise HTTPException(status_code=404, detail="Sheets require authentication")
     user = await require_user(request)
     pool: asyncpg.Pool = request.app.state.pool
     deleted = await db_sheets.delete_sheet(pool, sheet_id, user["user_id"])
@@ -432,10 +425,19 @@ async def delete_sheet(request: Request, sheet_id: UUID) -> dict[str, str]:
 
 
 async def _get_first_worker(pool: asyncpg.Pool) -> asyncpg.Record | None:
-    workers = await db.list_workers(pool)
-    if not workers:
-        return None
-    return workers[0]
+    worker = await db.get_running_worker(pool)
+    if worker is not None:
+        return worker
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """
+            SELECT worker_id, endpoint
+            FROM workers
+            WHERE status IN ('running', 'shutting_down', 'unreachable')
+            ORDER BY last_heartbeat_at DESC
+            LIMIT 1
+            """
+        )
 
 
 async def _get_worker_endpoint(pool: asyncpg.Pool, worker_id: UUID | None) -> asyncpg.Record | None:

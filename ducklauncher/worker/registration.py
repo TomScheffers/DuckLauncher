@@ -134,6 +134,18 @@ async def register_with_coordinator(
     raise last_error
 
 
+async def notify_ready(
+    client: httpx.AsyncClient,
+    settings: WorkerSettings,
+    state: WorkerState,
+) -> None:
+    if state.worker_id is None:
+        return
+    response = await client.post(f"{settings.coordinator_url}/workers/{state.worker_id}/ready")
+    response.raise_for_status()
+    logger.info("Worker %s marked ready", state.worker_id)
+
+
 async def _wait_or_shutdown(state: WorkerState, seconds: float) -> bool:
     try:
         await asyncio.wait_for(state.shutdown_event.wait(), timeout=seconds)

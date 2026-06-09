@@ -55,7 +55,7 @@ python -m ducklauncher worker --cpus 8 --memory 16384
 - **Coordinator** accepts queries, stores them in PostgreSQL, schedules them onto workers, and dispatches via HTTP.
 - **Workers** register with an advertised endpoint, run init scripts, execute DuckDB queries, and report completion.
 
-Worker statuses: `running`, `shutting_down`, `stopped`, `error`.
+Worker statuses: `initializing`, `running`, `unreachable`, `shutting_down`, `stopped`, `error`. Workers register as `initializing` while init scripts run, then call `/workers/{id}/ready` before accepting queries. Dispatch failures mark a worker `unreachable` until its next heartbeat.
 
 Query statuses: `pending`, `running`, `completed`, `failed`, `cancelled`.
 
@@ -113,7 +113,9 @@ CLI flags override environment variables.
 
 ### Authentication (optional)
 
-When OIDC is **not** configured, DuckLauncher stays open: no login, queries run anonymously (`user_id` is NULL), and history/sheets APIs return empty lists.
+When OIDC is **not** configured, DuckLauncher still assigns each browser an anonymous session cookie (random `anon:{uuid}` user). Query history and sheets persist per browser without login.
+
+When OIDC **is** configured, anonymous sessions work the same until the user clicks Login; OIDC login replaces the anonymous session with the authenticated account.
 
 Set all of the following on the **coordinator** to enable login:
 
