@@ -71,6 +71,8 @@ async def get_result(
         page = await asyncio.to_thread(executor.read_result_page, query_id, offset, limit)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return QueryResultPage(
         query_id=query_id,
         offset=offset,

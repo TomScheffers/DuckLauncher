@@ -25,6 +25,7 @@ class DuckDBExecutor:
         self._result_dir = result_dir
         self._result_dir.mkdir(parents=True, exist_ok=True)
         self._admin_conn = duckdb.connect(database_path)
+        self._admin_lock = threading.Lock()
         self._available: queue.Queue[duckdb.DuckDBPyConnection] = queue.Queue(maxsize=pool_size)
         self._lock = threading.Lock()
         self._active: dict[UUID, duckdb.DuckDBPyConnection] = {}
@@ -35,9 +36,20 @@ class DuckDBExecutor:
             self._available.put(duckdb.connect(self._database_path))
 
     def run_init_scripts(self, scripts: list[str]) -> None:
-        for script in scripts:
-            logger.info("Running init script")
-            self._admin_conn.execute(script)
+        with self._admin_lock:
+            for script in scripts:
+                logger.info("Running init script")
+                self._admin_conn.execute(script)
+
+    def _fetch_scalar(self, sql: str, params: list | None = None) -> object:
+        if params is None:
+            relation = self._admin_conn.execute(sql)
+        else:
+            relation = self._admin_conn.execute(sql, params)
+        row = relation.fetchone()
+        if row is None:
+            raise ValueError("Query returned no rows")
+        return row[0]
 
     def result_path(self, query_id: UUID) -> Path:
         return self._result_dir / f"{query_id}.parquet"
@@ -100,24 +112,25 @@ class DuckDBExecutor:
         return '"' + name.replace('"', '""') + '"'
 
     def introspect_catalog(self) -> dict:
-        rows = self._admin_conn.execute(
-            """
-            SELECT
-                table_catalog AS database_name,
-                table_schema AS schema_name,
-                table_name,
-                column_name,
-                data_type,
-                ordinal_position
-            FROM information_schema.columns
-            WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
-            ORDER BY
-                database_name,
-                schema_name,
-                table_name,
-                ordinal_position
-            """
-        ).fetchall()
+        with self._admin_lock:
+            rows = self._admin_conn.execute(
+                """
+                SELECT
+                    table_catalog AS database_name,
+                    table_schema AS schema_name,
+                    table_name,
+                    column_name,
+                    data_type,
+                    ordinal_position
+                FROM information_schema.columns
+                WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
+                ORDER BY
+                    database_name,
+                    schema_name,
+                    table_name,
+                    ordinal_position
+                """
+            ).fetchall()
 
         databases: dict[str, dict[str, dict[str, list[dict[str, str | int]]]]] = {}
         database_order: list[str] = []
@@ -177,30 +190,34 @@ class DuckDBExecutor:
         if not path.exists():
             raise FileNotFoundError(f"No result file for query {query_id}")
         path_str = str(path)
-        total_rows = self._admin_conn.execute(
-            "SELECT count(*) FROM read_parquet(?)",
-            [path_str],
-        ).fetchone()[0]
-        preview = self._admin_conn.execute(
-            "SELECT * FROM read_parquet(?) LIMIT 0",
-            [path_str],
-        )
-        columns = [col[0] for col in preview.description]
-        quoted_columns = ", ".join(self._quote_identifier(column) for column in columns)
-        rows = self._admin_conn.execute(
-            f"""
-            SELECT {quoted_columns}
-            FROM (
-                SELECT
-                    {quoted_columns},
-                    row_number() OVER (ORDER BY (SELECT 1)) AS __ducklauncher_row__
-                FROM read_parquet(?)
-            )
-            ORDER BY __ducklauncher_row__
-            LIMIT ? OFFSET ?
-            """,
-            [path_str, limit, offset],
-        ).fetchall()
+        with self._admin_lock:
+            try:
+                total_rows = self._fetch_scalar(
+                    "SELECT count(*) FROM read_parquet(?)",
+                    [path_str],
+                )
+                preview = self._admin_conn.execute(
+                    "SELECT * FROM read_parquet(?) LIMIT 0",
+                    [path_str],
+                )
+                columns = [col[0] for col in preview.description]
+                quoted_columns = ", ".join(self._quote_identifier(column) for column in columns)
+                rows = self._admin_conn.execute(
+                    f"""
+                    SELECT {quoted_columns}
+                    FROM (
+                        SELECT
+                            {quoted_columns},
+                            row_number() OVER (ORDER BY (SELECT 1)) AS __ducklauncher_row__
+                        FROM read_parquet(?)
+                    )
+                    ORDER BY __ducklauncher_row__
+                    LIMIT ? OFFSET ?
+                    """,
+                    [path_str, limit, offset],
+                ).fetchall()
+            except duckdb.Error as exc:
+                raise ValueError(f"Failed to read result file for query {query_id}: {exc}") from exc
         return {
             "total_rows": total_rows,
             "columns": columns,

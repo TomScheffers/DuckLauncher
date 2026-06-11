@@ -966,17 +966,35 @@
       return days === 1 ? "1 day ago" : `${days} days ago`;
     }
 
-    function formatRuntime(query) {
-      if (!query.started_at) return "—";
-      if (query.status === "pending") return "pending";
-      if (query.status === "running") return "running";
-      if (!query.completed_at) return "—";
-      const ms = new Date(query.completed_at).getTime() - new Date(query.started_at).getTime();
+    function formatElapsedMs(ms) {
+      if (ms < 0) ms = 0;
       if (ms < 1000) return `${ms}ms`;
       if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
       const min = Math.floor(ms / 60000);
       const sec = Math.floor((ms % 60000) / 1000);
       return `${min}m ${sec}s`;
+    }
+
+    function formatRuntime(query, now = Date.now()) {
+      if (query.status === "pending") return "pending";
+      if (!query.started_at) return "—";
+      const startedMs = new Date(query.started_at).getTime();
+      if (query.status === "running") {
+        return formatElapsedMs(now - startedMs);
+      }
+      if (!query.completed_at) return "—";
+      return formatElapsedMs(new Date(query.completed_at).getTime() - startedMs);
+    }
+
+    function updateHistoryRuntimes() {
+      const now = Date.now();
+      document.querySelectorAll("#history-list .history-item").forEach((item) => {
+        if (item.dataset.queryStatus !== "running") return;
+        const startedAt = item.dataset.startedAt;
+        if (!startedAt) return;
+        const el = item.querySelector(".history-runtime");
+        if (el) el.textContent = formatElapsedMs(now - new Date(startedAt).getTime());
+      });
     }
 
     function querySnippet(sql, max = 64) {
@@ -1001,8 +1019,6 @@
       stopQueryEvents();
       currentHistoryQueryId = query.query_id;
       currentQueryId = query.query_id;
-      setQuerySql(query.query);
-      setQueryStatus(query.status, query.status);
       highlightActiveHistory();
       showResultsPanel();
 
@@ -1012,34 +1028,25 @@
           resultOffset = 0;
           await loadResultPage();
         } else {
-          hideResultTable();
-          document.getElementById("result-meta").textContent = "Query completed with no result rows.";
-          document.getElementById("result-empty").textContent = "Query completed with no result rows.";
-          document.getElementById("result-empty").hidden = false;
+          showResultMessage("Query completed with no result rows.");
         }
         return;
       }
 
       if (query.status === "running" || query.status === "pending") {
         setRunButtonMode("cancel");
-        hideResultTable();
-        document.getElementById("result-meta").textContent = "";
-        document.getElementById("result-empty").textContent = "Query is still running...";
-        document.getElementById("result-empty").hidden = false;
+        showResultMessage("Query is still running...");
         watchQuery(query.query_id);
         return;
       }
 
       setRunButtonMode("run");
-      hideResultTable();
       if (query.error) {
-        document.getElementById("result-meta").textContent = query.error;
-        document.getElementById("result-empty").textContent = query.error;
+        showResultMessage(query.error);
       } else {
-        document.getElementById("result-meta").textContent = `Query ${query.status}`;
-        document.getElementById("result-empty").textContent = `Query ${query.status}`;
+        showResultMessage(`Query ${query.status}`);
       }
-      document.getElementById("result-empty").hidden = false;
+      return;
     }
 
     async function refreshHistory() {
@@ -1061,6 +1068,8 @@
         const item = document.createElement("div");
         item.className = "history-item";
         item.dataset.queryId = query.query_id;
+        item.dataset.queryStatus = query.status;
+        if (query.started_at) item.dataset.startedAt = query.started_at;
         const when = query.completed_at || query.started_at || query.created_at;
         item.innerHTML = `
           <span class="history-dot ${query.status}" aria-hidden="true"></span>
@@ -1284,6 +1293,12 @@
       document.getElementById("pager").hidden = true;
     }
 
+    function showResultMessage(message) {
+      document.getElementById("result-meta").textContent = "";
+      hideResultTable();
+      document.getElementById("result-empty").textContent = message;
+    }
+
     function stopQueryEvents() {
       if (queryEventSource) {
         queryEventSource.close();
@@ -1298,13 +1313,9 @@
         resultTotal = query.result_row_count;
         await loadResultPage();
       } else if (query.error) {
-        document.getElementById("result-meta").textContent = query.error;
-        hideResultTable();
-        document.getElementById("result-empty").textContent = query.error;
+        showResultMessage(query.error);
       } else {
-        document.getElementById("result-meta").textContent = "Query finished without result rows.";
-        hideResultTable();
-        document.getElementById("result-empty").textContent = "Query finished without result rows.";
+        showResultMessage("Query finished without result rows.");
       }
     }
 
@@ -1375,9 +1386,7 @@
 
       stopQueryEvents();
       currentQueryId = null;
-      hideResultTable();
-      document.getElementById("result-empty").textContent = "Running query...";
-      document.getElementById("result-meta").textContent = "";
+      showResultMessage("Running query...");
       setRunButtonMode("disabled");
       setQueryStatus("submitting");
 
@@ -1449,8 +1458,9 @@
 
     setInterval(() => {
       document.getElementById("clock").textContent = new Date().toLocaleTimeString();
+      updateHistoryRuntimes();
       refreshWorkers().catch(() => {});
-    }, 2000);
+    }, 1000);
 
     updateSqlHighlight();
     refreshAuth().catch(() => {});
